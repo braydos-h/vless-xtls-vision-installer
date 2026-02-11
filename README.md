@@ -69,8 +69,8 @@ cd /root
 git clone https://github.com/braydos-h/vless-xtls-vision-installer.git
 cd vless-xtls-vision-installer
 
-# 2) Run installer
-sudo bash xray_reality_bootstrap.sh install
+# 2) Run installer or just do install but this works well
+bash xray_reality_bootstrap.sh install --auto --non-interactive
 ```
 
 Then follow the wizard prompts.
