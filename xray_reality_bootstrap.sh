@@ -111,6 +111,8 @@ HTTP_CONNECT_TIMEOUT="30"
 HTTP_MAX_TIME="180"
 HTTP_RETRIES="5"
 HTTP_RETRY_DELAY="3"
+RETRY_ATTEMPTS="4"
+RETRY_DELAY_SEC="3"
 XRAY_HANDSHAKE_TIMEOUT_SEC="12"
 XRAY_CONN_IDLE_TIMEOUT_SEC="600"
 XRAY_UPLINK_ONLY_TIMEOUT_SEC="4"
@@ -208,6 +210,23 @@ require_root() {
 
 command_exists() {
   command -v "$1" >/dev/null 2>&1
+}
+
+retry_command() {
+  local attempts="$1"
+  local delay="$2"
+  shift 2
+
+  local n=1
+  until "$@"; do
+    local exit_code=$?
+    if (( n >= attempts )); then
+      return "$exit_code"
+    fi
+    log_warn "Command failed (attempt ${n}/${attempts}): $*"
+    sleep "$delay"
+    ((n+=1))
+  done
 }
 
 safe_mkdir() {
@@ -824,7 +843,7 @@ detect_os() {
 apt_update_once() {
   if [[ "$APT_UPDATED" != "true" ]]; then
     log_info "Refreshing package index..."
-    DEBIAN_FRONTEND=noninteractive apt-get update -y
+    retry_command "$RETRY_ATTEMPTS" "$RETRY_DELAY_SEC" env DEBIAN_FRONTEND=noninteractive apt-get update -y
     APT_UPDATED=true
   fi
 }
@@ -832,7 +851,7 @@ apt_update_once() {
 apt_install() {
   local pkgs=("$@")
   apt_update_once
-  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${pkgs[@]}"
+  retry_command "$RETRY_ATTEMPTS" "$RETRY_DELAY_SEC" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${pkgs[@]}"
 }
 
 ensure_qrencode() {
@@ -953,7 +972,7 @@ EOF
   systemctl enable --now nginx
   systemctl restart nginx
 
-  if ! curl -fsS --connect-timeout 3 --max-time 5 "http://127.0.0.1:${CAMOUFLAGE_WEB_PORT}/healthz" >/dev/null; then
+  if ! retry_command "$RETRY_ATTEMPTS" "$RETRY_DELAY_SEC" curl -fsS --connect-timeout 3 --max-time 5 "http://127.0.0.1:${CAMOUFLAGE_WEB_PORT}/healthz" >/dev/null; then
     die "Camouflage web server health check failed on 127.0.0.1:${CAMOUFLAGE_WEB_PORT}"
   fi
 
@@ -975,15 +994,17 @@ download_to_file() {
   local url="$1"
   local output="$2"
   if command_exists curl; then
-    curl -fsSL \
-      --connect-timeout "$HTTP_CONNECT_TIMEOUT" \
-      --max-time "$HTTP_MAX_TIME" \
-      --retry "$HTTP_RETRIES" \
-      --retry-delay "$HTTP_RETRY_DELAY" \
-      --retry-all-errors \
-      "$url" -o "$output"
+    retry_command "$RETRY_ATTEMPTS" "$RETRY_DELAY_SEC" \
+      curl -fsSL \
+        --connect-timeout "$HTTP_CONNECT_TIMEOUT" \
+        --max-time "$HTTP_MAX_TIME" \
+        --retry "$HTTP_RETRIES" \
+        --retry-delay "$HTTP_RETRY_DELAY" \
+        --retry-all-errors \
+        "$url" -o "$output"
   else
-    wget --quiet --tries="$HTTP_RETRIES" --timeout="$HTTP_CONNECT_TIMEOUT" -O "$output" "$url"
+    retry_command "$RETRY_ATTEMPTS" "$RETRY_DELAY_SEC" \
+      wget --quiet --tries="$HTTP_RETRIES" --timeout="$HTTP_CONNECT_TIMEOUT" -O "$output" "$url"
   fi
 }
 
@@ -1187,6 +1208,8 @@ harden_ssh() {
     fi
   done
   if [[ -z "$ssh_service" ]]; then
+    log_warn "OpenSSH service not found; installing openssh-server"
+    apt_install openssh-server
     for candidate in ssh sshd; do
       if systemctl cat "${candidate}.service" >/dev/null 2>&1; then
         ssh_service="$candidate"
@@ -1554,9 +1577,9 @@ EOF
   systemctl daemon-reload
   systemctl enable xray >/dev/null 2>&1
   if systemctl is-active --quiet xray 2>/dev/null; then
-    systemctl restart xray
+    retry_command "$RETRY_ATTEMPTS" "$RETRY_DELAY_SEC" systemctl restart xray
   else
-    systemctl start xray
+    retry_command "$RETRY_ATTEMPTS" "$RETRY_DELAY_SEC" systemctl start xray
   fi
   sleep 1
   systemctl --no-pager --full status xray >/dev/null
