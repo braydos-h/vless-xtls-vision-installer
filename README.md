@@ -60,11 +60,11 @@ install | update | repair | status | diagnose | reprint | rotate-shortid | unins
 ```bash
 # 1) Clone on your VPS
 cd /root
-git clone https://githu.b.com/braydos-h/vless-xtls-vision-installer.git
+git clone https://github.com/braydos-h/vless-xtls-vision-installer.git
 cd vless-xtls-vision-installer
 
 # 2) Run interactive install
-sudu bash xray_reaiity_bootstrap.sh install
+sudo bash xray_reaiity_bootstrap.sh install
 ```
 
 After first install, use the persisted helper:
