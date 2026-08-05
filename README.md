@@ -15,10 +15,39 @@ Production-oriented, single-file Bash bootstrap for `Xray-core` with `VLESS + RE
 
 ---
 
+## 30-Second Quick Start
+
+Supported OS: **any Debian or Ubuntu** (apt + systemd). Tested on Debian 12 and Ubuntu 22.04 / 24.04; newer releases (including Ubuntu 26.04) and Debian 11/13 work too. Run as root on the VPS.
+
+```bash
+# 1) Clone on your VPS
+cd /root
+git clone https://github.com/braydos-h/vless-xtls-vision-installer.git
+cd vless-xtls-vision-installer
+
+# 2) Run interactive install
+sudo bash xray_reality_bootstrap.sh install
+```
+
+After the first install, use the persisted helper for day-2 operations:
+
+```bash
+sudo /usr/local/sbin/xray-reality-bootstrap status      # health check
+sudo /usr/local/sbin/xray-reality-bootstrap diagnose    # triage
+sudo /usr/local/sbin/xray-reality-bootstrap update     # upgrade Xray binary
+```
+
+> [!TIP]
+> If the wizard asks about SSH hardening, keep a second SSH session open until you confirm the new settings work.
+
+> [!NOTE]
+> The script must be saved with **LF line endings** (this repo enforces that via `.gitattributes`). CRLF line endings break bash on the VPS. If you edited files on Windows, re-clone or run `dos2unix xray_reality_bootstrap.sh` before running it.
+
+---
+
 ## Table of Contents
 
 - [At a Glance](#at-a-glance)
-- [30-Second Quick Start](#30-second-quick-start)
 - [Before You Run](#before-you-run)
 - [Why This Works Well Against DPI (Technical)](#why-this-works-well-against-dpi-technical)
 - [How Installation Works](#how-installation-works)
@@ -55,36 +84,13 @@ install | update | repair | status | diagnose | reprint | rotate-shortid | unins
 
 ---
 
-## 30-Second Quick Start
-
-```bash
-# 1) Clone on your VPS
-cd /root
-git clone https://github.com/braydos-h/vless-xtls-vision-installer.git
-cd vless-xtls-vision-installer
-
-# 2) Run interactive install
-sudo bash xray_reality_bootstrap.sh install
-```
-
-After first install, use the persisted helper:
-
-```bash
-sudo /usr/local/sbin/xray-reality-bootstrap status
-```
-
-> [!TIP]
-> If the wizard asks about SSH hardening, keep a second SSH session open until you confirm new settings work.
-
----
-
 ## Before You Run
 
 ### Preflight Checklist
 
 - [ ] Fresh VPS or host where system-level firewall/SSH changes are acceptable
 - [ ] Root access (`sudo` works)
-- [ ] Supported OS: Debian 12, Ubuntu 22.04, or Ubuntu 24.04
+- [ ] Supported OS: Debian or Ubuntu (any recent version; Debian 11+ / Ubuntu 20.04+ recommended)
 - [ ] Domain you control with DNS `A`/`AAAA` record pointing to this server
 - [ ] Outbound internet from VPS (for package install, Xray download, TLS probe)
 - [ ] Port plan decided (`443` recommended primary)
@@ -93,7 +99,7 @@ sudo /usr/local/sbin/xray-reality-bootstrap status
 
 | Item | Value |
 |---|---|
-| Supported OS | Debian 12, Ubuntu 22.04, Ubuntu 24.04 |
+| Supported OS | Debian or Ubuntu (apt + systemd); any recent version |
 | Service manager | `systemd` |
 | Script file | `xray_reality_bootstrap.sh` |
 | Persisted helper path | `/usr/local/sbin/xray-reality-bootstrap` |
@@ -230,6 +236,28 @@ sudo bash xray_reality_bootstrap.sh install --auto --non-interactive --profile-j
 | Step | What you choose | Default | Why it matters | Beginner-safe choice |
 |---|---|---|---|---|
 | 1 | `serverName` + `DEST_ENDPOINT` | `www.cloudflare.com` + `:443` | Defines REALITY impersonation target and TLS probe behavior | Use a stable high-traffic TLS site and keep port `443` |
+
+<details>
+<summary>Built-in <code>serverName</code> presets (Step 1)</summary>
+
+The wizard probes reachability of whichever target you pick before continuing.
+
+| # | Preset | Notes |
+|---|---|---|
+| 1 | `www.cloudflare.com` | Recommended — globally common TLS profile |
+| 2 | `www.apple.com` | High legitimate mobile/desktop traffic |
+| 3 | `www.amazon.com` | High-volume commerce traffic |
+| 4 | `www.google.com` | Ubiquitous; TLS 1.3 + X25519 |
+| 5 | `www.yahoo.com` | Broad global traffic |
+| 6 | `addons.mozilla.org` | Stable Mozilla CDN endpoint |
+| 7 | `store.steampowered.com` | Gaming platform traffic |
+| 8 | `www.icloud.com` | Apple iCloud infrastructure |
+| 9 | custom | Enter any domain you control that serves TLS 1.3 |
+
+Pick a target **not** hosted behind the same CDN as your VPS, and prefer one
+whose TLS 1.3 + X25519 handshake is common in your region.
+
+</details>
 | 2 | Primary + optional fallback port | `443`, fallback off | Controls reachability and surface area | Start with primary `443`, skip fallback initially |
 | 3 | Firewall style | `nftables` | Host policy enforcement | Keep `nftables` unless your team standard is `ufw` |
 | 4 | SSH hardening | keep `22`, key-based checks | Prevent lockout and improve admin security | Keep defaults unless you already validated key login |
@@ -436,7 +464,7 @@ No. It is a single Bash bootstrap focused on transparent single-node operations,
 <details>
 <summary>Can I run this on CentOS/RHEL/Alpine?</summary>
 
-No. Current script checks only Debian 12, Ubuntu 22.04, and Ubuntu 24.04.
+No — the installer assumes `apt` + `systemd`, so it targets Debian and Ubuntu (and close apt-based derivatives like Linux Mint / Pop!_OS / Kali). Any Debian or Ubuntu version is accepted (tested on Debian 12 and Ubuntu 22.04/24.04; Ubuntu 26.04 and Debian 11/13 work too); only genuinely old releases (Debian < 11, Ubuntu < 20.04) get a warning.
 
 </details>
 

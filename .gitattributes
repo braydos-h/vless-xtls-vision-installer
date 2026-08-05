@@ -1,0 +1,10 @@
+# Normalise text files to LF on checkout and commit. This repo's shell script
+# runs on a Linux VPS where CRLF line endings break bash (the shebang and
+# trailing-\r in variables cause parse errors), so enforce LF everywhere.
+* text=auto eol=lf
+
+# Explicitly binary:
+*.png binary
+*.jpg binary
+*.zip binary
+*.dat binary

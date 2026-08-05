@@ -1,10 +1,48 @@
 #!/usr/bin/env bash
 # xray_reality_bootstrap.sh
 # Production-oriented bootstrap/install/update tool for Xray VLESS+REALITY+XTLS Vision.
+#
+# ── What this script does ───────────────────────────────────────────────────
+# Installs a single Xray-core node configured for VLESS + REALITY + XTLS Vision
+# onto a Debian or Ubuntu VPS (apt + systemd; any recent version), hardens the host (firewall,
+# SSH, fail2ban, unattended-upgrades), generates client configs, and provides
+# day-2 operations (update / repair / status / diagnose / reprint / rotate).
+#
+# ── The proxy transport, in one paragraph ────────────────────────────────────
+# VLESS       – lightweight multiplexing protocol carrying client traffic.
+# REALITY     – makes the server's TLS handshake impersonate a real, popular
+#               TLS 1.3 site (serverName/dest). A client that does NOT present
+#               the correct REALITY secret is transparently forwarded to a
+#               local camouflage web server, so the port looks like an ordinary
+#               HTTPS site to passive inspection.
+# XTLS Vision  – flow mode (xtls-rprx-vision) that avoids unnecessary re-encryption
+#               of already-TLS'd traffic for better throughput.
+#
+# ── Modes ────────────────────────────────────────────────────────────────────
+# install | update | repair | status | diagnose | reprint | rotate-shortid |
+# uninstall   (see `usage()` and the README for details)
+#
+# ── Key paths ────────────────────────────────────────────────────────────────
+# /etc/xray/config.json            – Xray server config
+# /etc/xray/bootstrap-state.env     – secrets + chosen options (chmod 600)
+# /etc/xray/bootstrap-options.json  – non-secret options profile (chmod 600)
+# /usr/local/bin/xray              – Xray binary
+# /usr/local/sbin/xray-reality-bootstrap – this script, copied for reuse
+# /root/xray-client-configs         – generated client artifacts (chmod 700)
+#
+# ── Install flow (see install_mode) ──────────────────────────────────────────
+# detect_os -> wizard/profile load -> probe REALITY dest -> install deps ->
+# install Xray binary -> generate identity (UUID/keypair/shortIds) ->
+# camouflage web server -> write config -> systemd unit -> SSH hardening ->
+# firewall -> fail2ban -> unattended-upgrades -> update timer -> save state ->
+# generate client artifacts.
+#
+# Run on a Linux VPS (the committed file uses LF line endings; CRLF will break
+# bash). See README.md for the beginner-first walkthrough.
 
 set -Eeuo pipefail
 
-SCRIPT_VERSION="1.0.0"
+SCRIPT_VERSION="1.1.0"
 STATE_FILE="/etc/xray/bootstrap-state.env"
 DEFAULT_PROFILE_JSON_FILE="/etc/xray/bootstrap-options.json"
 PROFILE_JSON_FILE="$DEFAULT_PROFILE_JSON_FILE"
@@ -63,8 +101,8 @@ EMBEDDED_PROFILE_JSON=$(cat <<'EOF'
   "profile_format": "1",
   "generated_at_utc": "2026-02-11T03:52:28Z",
   "script_version": "1.0.0",
-  "SERVER_NAME": "www.microsoft.com",
-  "DEST_ENDPOINT": "www.microsoft.com:443",
+  "SERVER_NAME": "www.cloudflare.com",
+  "DEST_ENDPOINT": "www.cloudflare.com:443",
   "LISTEN_PORT": "443",
   "FALLBACK_PORT": "",
   "FIREWALL_STYLE": "nftables",
@@ -152,6 +190,14 @@ die() {
   exit 1
 }
 
+# Clean cancellation for EOF (Ctrl-D) on an interactive read, so it does not
+# surface as a confusing ERR-trap "Command failed at line N: read ..." message.
+die_cancel() {
+  printf '\n'
+  log_warn "Cancelled by user."
+  exit 130
+}
+
 on_error() {
   local code=$?
   local line=${1:-unknown}
@@ -199,7 +245,11 @@ usage() {
 }
 
 is_tty() {
-  [[ -t 0 && -t 1 ]]
+  # Prompting only needs a controlling stdin. read -p writes the prompt to
+  # stderr, so prompts still show when stdout is piped (e.g. `... install |
+  # tee log`). Requiring stdout to be a TTY too silently skipped every wizard
+  # prompt and ran the wizard with all defaults whenever output was piped.
+  [[ -t 0 ]]
 }
 
 require_root() {
@@ -238,6 +288,11 @@ safe_mkdir() {
 
 urlencode() {
   local s="$1"
+  # Force byte-oriented processing. Without LC_ALL=C, ${#s} and ${s:i:1} are
+  # character-indexed under a UTF-8 locale, so non-ASCII bytes get encoded by
+  # Unicode codepoint (e.g. é -> %E9) instead of UTF-8 bytes (é -> %C3%A9),
+  # producing mojibake / unparseable share-link fragments.
+  local LC_ALL=C
   local out=""
   local c
   local i
@@ -289,7 +344,9 @@ extract_reality_key_from_text() {
 validate_port() {
   local p="$1"
   [[ "$p" =~ ^[0-9]+$ ]] || return 1
-  (( p >= 1 && p <= 65535 ))
+  # Force base-10: otherwise "010" is silently accepted as port 8 (octal) and
+  # "08"/"09" abort with an ugly arithmetic error.
+  (( 10#$p >= 1 && 10#$p <= 65535 ))
 }
 
 validate_short_id_count() {
@@ -407,7 +464,9 @@ normalize_short_id_state() {
   fi
 
   if [[ -n "${REALITY_SHORT_IDS:-}" ]]; then
-    REALITY_SHORT_IDS="$(normalize_short_ids_csv "$REALITY_SHORT_IDS")"
+    # normalize_short_ids_csv returns 1 for an all-empty CSV (e.g. ","); mask
+    # that so set -e does not fire the ERR trap before the clear die() below.
+    REALITY_SHORT_IDS="$(normalize_short_ids_csv "$REALITY_SHORT_IDS")" || true
     REALITY_SHORT_ID="$(primary_short_id_from_csv "$REALITY_SHORT_IDS")"
     if ! validate_short_id_count "${SHORT_ID_COUNT:-}"; then
       SHORT_ID_COUNT="$(short_ids_count_from_csv "$REALITY_SHORT_IDS")"
@@ -438,7 +497,7 @@ is_ipv4_literal() {
   IFS='.' read -r -a octets <<<"$host"
   for octet in "${octets[@]}"; do
     [[ "$octet" =~ ^[0-9]+$ ]] || return 1
-    (( octet >= 0 && octet <= 255 )) || return 1
+    (( 10#$octet >= 0 && 10#$octet <= 255 )) || return 1
   done
   return 0
 }
@@ -458,6 +517,10 @@ validate_reality_dest_connectivity() {
 
   local host="${DEST_ENDPOINT%:*}"
   local port="${DEST_ENDPOINT##*:}"
+  # Strip surrounding [] from a bracketed IPv6 literal (e.g. [::1]:443 -> ::1)
+  # so the /dev/tcp probe (which wants a bare IPv6 host) and openssl get a clean host.
+  host="${host#\[}"
+  host="${host%\]}"
 
   if is_ipv4_literal "$host"; then
     log_warn "DEST endpoint is pinned to IP (${host}). CDN IPs rotate; prefer ${SERVER_NAME}:${port} to avoid timeout regressions."
@@ -468,7 +531,14 @@ validate_reality_dest_connectivity() {
   fi
 
   if command_exists openssl; then
-    if ! run_with_timeout 12 openssl s_client -connect "$DEST_ENDPOINT" -servername "$SERVER_NAME" -brief </dev/null >/dev/null 2>&1; then
+    # openssl s_client -connect requires IPv6 literals in [host]:port form.
+    local connect_arg
+    if [[ "$host" == *:* ]]; then
+      connect_arg="[${host}]:${port}"
+    else
+      connect_arg="${host}:${port}"
+    fi
+    if ! run_with_timeout 12 openssl s_client -connect "$connect_arg" -servername "$SERVER_NAME" -brief </dev/null >/dev/null 2>&1; then
       die "TLS probe failed for DEST ${DEST_ENDPOINT} with SNI ${SERVER_NAME}. The target may not support TLS 1.3. Choose a different serverName/DEST pair."
     fi
   fi
@@ -487,7 +557,7 @@ prompt_yes_no() {
     if ! is_tty; then
       [[ "$default" == "yes" ]] && return 0 || return 1
     fi
-    read -r -p "${prompt} ${default_hint}: " answer
+    read -r -p "${prompt} ${default_hint}: " answer || die_cancel
     answer="$(trim "$answer")"
     if [[ -z "$answer" ]]; then
       [[ "$default" == "yes" ]] && return 0 || return 1
@@ -510,7 +580,7 @@ prompt_input() {
     return 0
   fi
 
-  read -r -p "${prompt} [default: ${default}]: " result
+  read -r -p "${prompt} [default: ${default}]: " result || die_cancel
   result="$(trim "$result")"
   if [[ -z "$result" ]]; then
     printf '%s' "$default"
@@ -627,6 +697,9 @@ validate_profile_options() {
   if [[ "$CAMOUFLAGE_WEB_PORT" == "$LISTEN_PORT" || ( -n "$FALLBACK_PORT" && "$CAMOUFLAGE_WEB_PORT" == "$FALLBACK_PORT" ) ]]; then
     die "Profile ${source_label}: CAMOUFLAGE_WEB_PORT must differ from Xray listen/fallback ports"
   fi
+  if [[ "$CAMOUFLAGE_WEB_PORT" == "$SSH_PORT" ]]; then
+    die "Profile ${source_label}: CAMOUFLAGE_WEB_PORT must differ from SSH_PORT"
+  fi
 }
 
 load_options_profile() {
@@ -723,9 +796,12 @@ save_options_profile() {
   fi
   generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-  local old_umask
+  local old_umask tmp_profile
   old_umask="$(umask)"
   umask 077
+  # Write to a temp file then atomically rename, so an interrupted save cannot
+  # leave a truncated JSON file that breaks the next --auto load.
+  tmp_profile="$(mktemp "${PROFILE_JSON_FILE}.tmp.XXXXXX")"
   {
     printf '{\n'
     printf '  "profile_format": "%s",\n' "$(json_escape "1")"
@@ -750,18 +826,21 @@ save_options_profile() {
     printf '  "BLOCK_PRIVATE_OUTBOUND": "%s",\n' "$(json_escape "$BLOCK_PRIVATE_OUTBOUND")"
     printf '  "CAMOUFLAGE_WEB_PORT": "%s"\n' "$(json_escape "$CAMOUFLAGE_WEB_PORT")"
     printf '}\n'
-  } >"$PROFILE_JSON_FILE"
+  } >"$tmp_profile"
 
-  chmod 600 "$PROFILE_JSON_FILE"
+  chmod 600 "$tmp_profile"
+  mv -f "$tmp_profile" "$PROFILE_JSON_FILE"
   umask "$old_umask"
   log_ok "Saved install options profile: ${PROFILE_JSON_FILE}"
 }
 
 save_state() {
   safe_mkdir "$XRAY_DIR" 700
-  local old_umask
+  local old_umask tmp_state
   old_umask="$(umask)"
   umask 077
+  # Atomic write so an interrupted save cannot zero out the state file.
+  tmp_state="$(mktemp "${STATE_FILE}.tmp.XXXXXX")"
   {
     printf "# xray bootstrap state\n"
     printf "SCRIPT_VERSION=%q\n" "$SCRIPT_VERSION"
@@ -801,8 +880,9 @@ save_state() {
     printf "REALITY_SHORT_IDS=%q\n" "$REALITY_SHORT_IDS"
     printf "CAMOUFLAGE_WEB_PORT=%q\n" "$CAMOUFLAGE_WEB_PORT"
     printf "PUBLIC_IP=%q\n" "$PUBLIC_IP"
-  } >"$STATE_FILE"
-  chmod 600 "$STATE_FILE"
+  } >"$tmp_state"
+  chmod 600 "$tmp_state"
+  mv -f "$tmp_state" "$STATE_FILE"
   umask "$old_umask"
   save_options_profile
 }
@@ -827,17 +907,31 @@ detect_os() {
   OS_ID="${ID:-}"
   OS_VERSION_ID="${VERSION_ID:-}"
 
+  # Family gate: accept Debian and Ubuntu proper, plus apt-based derivatives
+  # (Linux Mint, Pop!_OS, Kali, Parrot, ...) via ID_LIKE. Reject anything that
+  # does not use apt + systemd (CentOS/RHEL/Fedora/Alpine/Arch, etc.).
+  local os_family
   case "$OS_ID" in
-    debian)
-      [[ "$OS_VERSION_ID" == "12" ]] || die "Unsupported Debian version: ${OS_VERSION_ID}. Require Debian 12."
-      ;;
-    ubuntu)
-      [[ "$OS_VERSION_ID" == "22.04" || "$OS_VERSION_ID" == "24.04" ]] || die "Unsupported Ubuntu version: ${OS_VERSION_ID}. Require 22.04 or 24.04."
-      ;;
+    debian|ubuntu) os_family="$OS_ID" ;;
     *)
-      die "Unsupported OS: ${OS_ID}. Supported: Debian 12, Ubuntu 22.04/24.04."
+      case "${ID_LIKE:-}" in
+        *debian*|*ubuntu*) os_family="debian" ;;
+        *) die "Unsupported OS: ${OS_ID:-unknown}. This installer requires Debian or Ubuntu (apt + systemd). Use a Debian/Ubuntu VPS." ;;
+      esac
       ;;
   esac
+
+  # Any Debian/Ubuntu version is accepted — the installer only relies on
+  # apt + systemd, which are stable across releases — so 26.04 and every other
+  # current/near-future release works. We only warn on genuinely ancient
+  # releases whose userspace/toolchain may be too old.
+  local major="${OS_VERSION_ID%%.*}"
+  if [[ "$os_family" == "debian" && "$major" =~ ^[0-9]+$ ]] && (( 10#$major < 11 )); then
+    log_warn "Debian ${OS_VERSION_ID} is very old and untested; recommend Debian 11 or newer."
+  fi
+  if [[ "$os_family" == "ubuntu" && "$major" =~ ^[0-9]+$ ]] && (( 10#$major < 20 )); then
+    log_warn "Ubuntu ${OS_VERSION_ID} is very old and untested; recommend Ubuntu 20.04 or newer."
+  fi
 }
 
 apt_update_once() {
@@ -939,6 +1033,16 @@ configure_camouflage_web_server() {
   if [[ "$CAMOUFLAGE_WEB_PORT" == "$LISTEN_PORT" || ( -n "$FALLBACK_PORT" && "$CAMOUFLAGE_WEB_PORT" == "$FALLBACK_PORT" ) ]]; then
     die "Camouflage web port must differ from Xray primary/fallback listen ports"
   fi
+  if [[ "$CAMOUFLAGE_WEB_PORT" == "$SSH_PORT" ]]; then
+    die "Camouflage web port must differ from the SSH port (${SSH_PORT})"
+  fi
+
+  # Only emit the IPv6 loopback listener when the kernel actually has IPv6;
+  # on ipv6.disable=1 hosts nginx fails to bind [::1] and aborts the install.
+  local ipv6_listen=""
+  if [[ -e /proc/net/if_inet6 ]]; then
+    ipv6_listen="    listen [::1]:${CAMOUFLAGE_WEB_PORT};"
+  fi
 
   write_camouflage_site_content
   safe_mkdir "/etc/nginx/conf.d" 755
@@ -946,7 +1050,7 @@ configure_camouflage_web_server() {
   cat >"$CAMOUFLAGE_NGINX_CONF" <<EOF
 server {
     listen 127.0.0.1:${CAMOUFLAGE_WEB_PORT};
-    listen [::1]:${CAMOUFLAGE_WEB_PORT};
+${ipv6_listen}
     server_name ${SERVER_NAME} _;
 
     root ${CAMOUFLAGE_SITE_DIR};
@@ -1079,12 +1183,18 @@ install_or_update_xray_binary() {
 
   if [[ -z "$expected_sha" && -n "$dgst_url" ]]; then
     download_to_file "$dgst_url" "$dgst_file"
-    expected_sha="$(awk -v a="$XRAY_ASSET" '
+    # The per-asset .dgst file is `MD5= ..`, `SHA1= ..`, `SHA2-256= <hash>`,
+    # `SHA2-512= ..` with NO asset name on any line. Match the SHA2-256 label
+    # and anchor the 64-hex match to end-of-line so the 128-hex SHA2-512 line
+    # cannot be mistaken for the 256-bit digest.
+    expected_sha="$(awk '
       {
         gsub("\r", "", $0)
-        if (index($0, a) && match($0, /[A-Fa-f0-9]{64}/)) {
-          print tolower(substr($0, RSTART, RLENGTH));
-          exit
+        if ($0 ~ /^[[:space:]]*SHA2-256[[:space:]]*=/ || $0 ~ /^[[:space:]]*SHA256[[:space:]]*=/) {
+          if (match($0, /[A-Fa-f0-9]{64} *$/)) {
+            print tolower(substr($0, RSTART, RLENGTH));
+            exit
+          }
         }
       }
     ' "$dgst_file")"
@@ -1143,13 +1253,16 @@ ensure_identity_materials() {
 
   if [[ -z "$UUID" ]]; then
     local uuid_output
-    uuid_output="$($XRAY_BIN uuid 2>&1)"
+    # `|| true` keeps a broken/missing xray binary from firing the global ERR
+    # trap with a generic message; the emptiness check + die() below then emit
+    # the actionable "ensure xray is installed" guidance.
+    uuid_output="$($XRAY_BIN uuid 2>&1 || true)"
     UUID="$(extract_uuid_from_text "$uuid_output")"
   fi
 
   if [[ -z "$REALITY_PRIVATE_KEY" || -z "$REALITY_PUBLIC_KEY" ]]; then
     local keypair
-    keypair="$($XRAY_BIN x25519 2>&1)"
+    keypair="$($XRAY_BIN x25519 2>&1 || true)"
     REALITY_PRIVATE_KEY="$(extract_reality_key_from_text "private" "$keypair")"
     REALITY_PUBLIC_KEY="$(extract_reality_key_from_text "public" "$keypair")"
 
@@ -1263,8 +1376,12 @@ bantime = 1h
 EOF
 
   chmod 644 /etc/fail2ban/jail.d/sshd.local
-  systemctl enable --now fail2ban
-  log_ok "fail2ban enabled"
+  # enable + restart (not enable --now): if fail2ban is already active,
+  # `enable --now` is a no-op and never reloads the rewritten jail.local or
+  # restores the bans that nftables' `flush ruleset` just wiped.
+  systemctl enable fail2ban
+  systemctl restart fail2ban
+  log_ok "fail2ban enabled (restarted to load jail config and restore bans)"
 }
 
 configure_unattended_upgrades() {
@@ -1388,7 +1505,7 @@ write_xray_config() {
     "rules": [
       {
         "type": "field",
-        "ip": ["geoip:private", "geoip:reserved"],
+        "ip": ["geoip:private"],
         "outboundTag": "blocked"
       }
     ]
@@ -1404,7 +1521,8 @@ write_xray_config() {
   fi
 
   local client_email
-  client_email="$(echo "$PROFILE_NAME" | tr -cs 'A-Za-z0-9._-' '-' | sed 's/^-//;s/-$//')@xray"
+  # printf, not echo: a profile name like "-n" is swallowed by echo as a flag.
+  client_email="$(printf '%s\n' "$PROFILE_NAME" | tr -cs 'A-Za-z0-9._-' '-' | sed 's/^-//;s/-$//')@xray"
   normalize_short_id_state
   [[ -n "$REALITY_SHORT_IDS" ]] || die "REALITY shortIds are missing; run install/repair or rotate-shortid"
   validate_port "$CAMOUFLAGE_WEB_PORT" || die "Invalid camouflage web port: ${CAMOUFLAGE_WEB_PORT}"
@@ -1601,6 +1719,11 @@ configure_xray_update_timer() {
   if [[ ! -x "$SELF_INSTALLED_PATH" ]]; then
     log_warn "Could not install helper command at ${SELF_INSTALLED_PATH}; falling back to manual updates"
     XRAY_UPDATE_POLICY="manual"
+    # Mirror the explicit manual branch: remove any timer a previous install
+    # enabled so it does not keep firing against a helper that no longer exists.
+    systemctl disable --now xray-update.timer >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/xray-update.timer /etc/systemd/system/xray-update.service
+    systemctl daemon-reload
     return
   fi
 
@@ -1668,6 +1791,11 @@ detect_public_ip() {
 build_vless_uri() {
   local host="$1"
   local port="$2"
+  # IPv6 IP literals must be wrapped in [] inside the URI authority, otherwise
+  # the :port merges into the address and clients cannot parse host/port.
+  if [[ "$host" == *:* && "$host" != \[* ]]; then
+    host="[${host}]"
+  fi
   local profile_fragment
   profile_fragment="$(urlencode "$PROFILE_NAME")"
 
@@ -1695,11 +1823,21 @@ generate_client_artifacts() {
   short_ids_display="${REALITY_SHORT_IDS//,/, }"
 
   local server_host
-  PUBLIC_IP="$(detect_public_ip)"
+  # Reuse a previously-detected (or state-loaded) IP rather than probing again,
+  # so state and client artifacts never disagree. Probe only when missing.
+  if [[ -z "${PUBLIC_IP:-}" ]]; then
+    PUBLIC_IP="$(detect_public_ip || true)"
+  fi
+  if [[ -z "${PUBLIC_IP:-}" ]]; then
+    if is_tty; then
+      PUBLIC_IP="$(prompt_input "Could not auto-detect this server's public IP. Enter it manually" "")"
+      PUBLIC_IP="$(trim "$PUBLIC_IP")"
+    fi
+  fi
   server_host="${PUBLIC_IP:-<SERVER_PUBLIC_IP>}"
 
   local profile_safe
-  profile_safe="$(echo "$PROFILE_NAME" | tr -cs 'A-Za-z0-9._-' '_')"
+  profile_safe="$(printf '%s\n' "$PROFILE_NAME" | tr -cs 'A-Za-z0-9._-' '_')"
   profile_safe="${profile_safe#_}"
   profile_safe="${profile_safe%_}"
   [[ -z "$profile_safe" ]] && profile_safe="reality"
@@ -1738,9 +1876,17 @@ EOF
   printf '%s\n' "$REALITY_SHORT_IDS" | tr ',' '\n' >"$shortids_file"
   chmod 600 "$shortids_file"
 
+  # Escape free-form / user-supplied fields before interpolating into JSON so
+  # a profile/server name containing a quote, backslash, or newline cannot
+  # produce invalid JSON that v2rayN/v2rayNG/sing-box refuse to import.
+  local pn_escaped sni_escaped host_escaped
+  pn_escaped="$(json_escape "$PROFILE_NAME")"
+  sni_escaped="$(json_escape "$SERVER_NAME")"
+  host_escaped="$(json_escape "$server_host")"
+
   cat >"$v2rayn_json" <<EOF
 {
-  "remarks": "${PROFILE_NAME}-primary",
+  "remarks": "${pn_escaped}-primary",
   "log": {
     "loglevel": "warning"
   },
@@ -1751,7 +1897,7 @@ EOF
       "settings": {
         "vnext": [
           {
-            "address": "${server_host}",
+            "address": "${host_escaped}",
             "port": ${LISTEN_PORT},
             "users": [
               {
@@ -1767,7 +1913,7 @@ EOF
         "network": "tcp",
         "security": "reality",
         "realitySettings": {
-          "serverName": "${SERVER_NAME}",
+          "serverName": "${sni_escaped}",
           "fingerprint": "chrome",
           "publicKey": "${REALITY_PUBLIC_KEY}",
           "shortId": "${primary_short_id}",
@@ -1784,15 +1930,15 @@ EOF
   cat >"$sing_primary_json" <<EOF
 {
   "type": "vless",
-  "tag": "${PROFILE_NAME}-primary",
-  "server": "${server_host}",
+  "tag": "${pn_escaped}-primary",
+  "server": "${host_escaped}",
   "server_port": ${LISTEN_PORT},
   "uuid": "${UUID}",
   "flow": "xtls-rprx-vision",
   "packet_encoding": "xudp",
   "tls": {
     "enabled": true,
-    "server_name": "${SERVER_NAME}",
+    "server_name": "${sni_escaped}",
     "utls": {
       "enabled": true,
       "fingerprint": "chrome"
@@ -2195,6 +2341,37 @@ uninstall_mode() {
     nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1 || true
   fi
 
+  # Restore the original sshd_config that harden_ssh backed up, so the operator
+  # is not left on a non-standard port with password auth disabled after Xray
+  # is gone. Also open port 22 in the active firewall: the installer's firewall
+  # only allowed the (possibly changed) SSH_PORT and would otherwise drop 22,
+  # locking the operator out of the just-restored default sshd.
+  local sshd_bak="/etc/ssh/sshd_config.pre-xray-bootstrap.bak"
+  if [[ -f "$sshd_bak" ]]; then
+    cp -a "$sshd_bak" /etc/ssh/sshd_config
+    rm -f "$sshd_bak"
+    local ssh_service=""
+    local candidate
+    for candidate in ssh sshd; do
+      if systemctl cat "${candidate}.service" >/dev/null 2>&1; then
+        ssh_service="$candidate"; break
+      fi
+    done
+    if [[ -n "$ssh_service" ]]; then
+      command_exists sshd && sshd -t -f /etc/ssh/sshd_config 2>/dev/null || true
+      systemctl restart "$ssh_service" >/dev/null 2>&1 || true
+    fi
+    if systemctl is-active --quiet nftables 2>/dev/null; then
+      nft insert rule inet filter input tcp dport 22 accept 2>/dev/null || true
+    elif systemctl is-active --quiet ufw 2>/dev/null; then
+      ufw allow 22/tcp >/dev/null 2>&1 || true
+    fi
+    log_ok "Restored original /etc/ssh/sshd_config and opened port 22 in the firewall"
+    log_warn "Open a NEW SSH session on port 22 BEFORE closing this one to confirm access."
+  else
+    log_warn "No sshd_config backup found; this installer did not change SSH settings."
+  fi
+
   if prompt_yes_no "Remove ${XRAY_DIR} (contains secrets/state)?" "yes"; then
     rm -rf "$XRAY_DIR"
   fi
@@ -2230,7 +2407,7 @@ print_existing_install_menu() {
   printf "\n"
 
   local choice
-  read -r -p "Selection [default: 1]: " choice
+  read -r -p "Selection [default: 1]: " choice || die_cancel
   choice="$(trim "$choice")"
   [[ -z "$choice" ]] && choice="1"
 
@@ -2253,24 +2430,33 @@ print_existing_install_menu() {
 wizard_question_1_domain_dest() {
   section "Step 1 of 7: REALITY Impersonation Target"
   printf "\n"
-  printf "    %bPick a TLS 1.3 site to impersonate. High-traffic, stable domains work best.%b\n" "$C_DIM" "$C_RESET"
+  printf "    %bPick a TLS 1.3 site to impersonate. REALITY makes your server's TLS%b\n" "$C_DIM" "$C_RESET"
+  printf "    %bhandshake look like a connection to this site; pick a high-traffic,%b\n" "$C_DIM" "$C_RESET"
+  printf "    %bstable one. The script probes reachability before continuing.%b\n" "$C_DIM" "$C_RESET"
   printf "\n"
 
+  # Single source of truth: add or reorder domains here and the menu + selection
+  # both follow. "custom" must remain the last entry.
   local options=(
     "www.cloudflare.com|Cloudflare edge; globally common TLS profile"
-    "www.microsoft.com|Large enterprise footprint; stable TLS endpoints"
     "www.apple.com|High legitimate mobile/desktop traffic"
     "www.amazon.com|High-volume commerce traffic"
+    "www.google.com|Ubiquitous; TLS 1.3 + X25519"
+    "www.yahoo.com|Broad global traffic"
+    "addons.mozilla.org|Stable Mozilla CDN endpoint"
+    "store.steampowered.com|Gaming platform traffic"
+    "www.icloud.com|Apple iCloud infrastructure"
     "custom|Enter your own domain"
   )
 
+  local count=${#options[@]}
   local i=1
   for item in "${options[@]}"; do
     local domain="${item%%|*}"
     local desc="${item#*|}"
     if (( i == 1 )); then
       printf "    %b%d)%b %b%-24s%b %s %b(recommended)%b\n" "$C_GREEN" "$i" "$C_RESET" "$C_BOLD" "$domain" "$C_RESET" "$desc" "$C_YELLOW" "$C_RESET"
-    elif (( i == 5 )); then
+    elif (( i == count )); then
       printf "    %b%d)%b %b%-24s%b %s\n" "$C_CYAN" "$i" "$C_RESET" "$C_BOLD" "$domain" "$C_RESET" "$desc"
     else
       printf "    %b%d)%b %-24s %s\n" "$C_BOLD" "$i" "$C_RESET" "$domain" "$desc"
@@ -2281,21 +2467,21 @@ wizard_question_1_domain_dest() {
 
   local pick="1"
   if is_tty; then
-    read -r -p "Choose serverName option [default: 1]: " pick
+    read -r -p "Choose serverName option [default: 1]: " pick || die_cancel
     pick="$(trim "$pick")"
     [[ -z "$pick" ]] && pick="1"
   fi
 
   case "$pick" in
-    1) SERVER_NAME="www.cloudflare.com" ;;
-    2) SERVER_NAME="www.microsoft.com" ;;
-    3) SERVER_NAME="www.apple.com" ;;
-    4) SERVER_NAME="www.amazon.com" ;;
-    5)
-      SERVER_NAME="$(prompt_input "Enter custom serverName domain" "www.cloudflare.com")"
-      ;;
-    *) die "Invalid choice for serverName" ;;
+    *[!0-9]*) die "Invalid choice for serverName: ${pick}" ;;
   esac
+  (( pick >= 1 && pick <= count )) || die "Invalid choice for serverName: ${pick}"
+
+  if (( pick == count )); then
+    SERVER_NAME="$(prompt_input "Enter custom serverName domain" "www.cloudflare.com")"
+  else
+    SERVER_NAME="${options[$((pick-1))]%%|*}"
+  fi
 
   DEST_ENDPOINT="$(prompt_input "Enter REALITY dest endpoint (domain:port recommended)" "${SERVER_NAME}:443")"
   validate_hostport "$DEST_ENDPOINT" || die "Invalid dest endpoint: ${DEST_ENDPOINT}"
@@ -2318,6 +2504,9 @@ wizard_question_2_ports() {
   custom_primary="$(prompt_input "Primary listen port" "443")"
   validate_port "$custom_primary" || die "Invalid primary listen port"
   LISTEN_PORT="$custom_primary"
+  if [[ "$LISTEN_PORT" == "22" ]]; then
+    log_warn "Port 22 is the default SSH port. You MUST change the SSH port in Step 4 or you will lock yourself out."
+  fi
 
   if prompt_yes_no "Add fallback listen port (e.g., 8443)?" "no"; then
     local fb
@@ -2325,6 +2514,9 @@ wizard_question_2_ports() {
     validate_port "$fb" || die "Invalid fallback port"
     [[ "$fb" == "$LISTEN_PORT" ]] && die "Fallback port cannot equal primary port"
     FALLBACK_PORT="$fb"
+    if [[ "$FALLBACK_PORT" == "22" ]]; then
+      log_warn "Fallback port 22 is the default SSH port. You MUST change the SSH port in Step 4."
+    fi
   else
     FALLBACK_PORT=""
   fi
@@ -2338,7 +2530,7 @@ wizard_question_3_firewall() {
     printf "    %b1)%b nftables  %b- explicit policy, minimal footprint%b  %b(recommended)%b\n" "$C_GREEN" "$C_RESET" "$C_DIM" "$C_RESET" "$C_YELLOW" "$C_RESET"
     printf "    %b2)%b ufw       %b- simpler wrapper, familiar to most admins%b\n" "$C_BOLD" "$C_RESET" "$C_DIM" "$C_RESET"
     printf "\n"
-    read -r -p "    Choose firewall [default: 1]: " pick
+    read -r -p "    Choose firewall [default: 1]: " pick || die_cancel
     pick="$(trim "$pick")"
     [[ -z "$pick" ]] && pick="1"
   fi
@@ -2353,20 +2545,27 @@ wizard_question_3_firewall() {
 wizard_question_4_ssh_hardening() {
   section "Step 4 of 7: SSH Hardening"
 
-  if prompt_yes_no "Change SSH port from 22?" "no"; then
-    CHANGE_SSH_PORT="yes"
-    local new_ssh
-    new_ssh="$(prompt_input "New SSH port" "2222")"
-    validate_port "$new_ssh" || die "Invalid SSH port"
-    SSH_PORT="$new_ssh"
-  else
-    CHANGE_SSH_PORT="no"
-    SSH_PORT="22"
-  fi
-
-  if [[ "$SSH_PORT" == "$LISTEN_PORT" || ( -n "$FALLBACK_PORT" && "$SSH_PORT" == "$FALLBACK_PORT" ) ]]; then
-    die "SSH port must differ from Xray listen/fallback port"
-  fi
+  # Re-prompt on conflict instead of aborting the whole wizard two steps in.
+  while true; do
+    if prompt_yes_no "Change SSH port from 22?" "no"; then
+      CHANGE_SSH_PORT="yes"
+      local new_ssh
+      new_ssh="$(prompt_input "New SSH port" "2222")"
+      if ! validate_port "$new_ssh"; then
+        log_warn "Invalid SSH port; enter a number 1-65535."
+        continue
+      fi
+      SSH_PORT="$new_ssh"
+    else
+      CHANGE_SSH_PORT="no"
+      SSH_PORT="22"
+    fi
+    if [[ "$SSH_PORT" == "$LISTEN_PORT" || ( -n "$FALLBACK_PORT" && "$SSH_PORT" == "$FALLBACK_PORT" ) ]]; then
+      log_warn "SSH port ${SSH_PORT} conflicts with an Xray listen/fallback port. Choose a different SSH port."
+      continue
+    fi
+    break
+  done
 
   if prompt_yes_no "Have you verified SSH key login in another session?" "yes"; then
     HAS_SSH_KEYS="yes"
@@ -2409,7 +2608,7 @@ wizard_question_5_updates() {
 
   local pick="2"
   if is_tty; then
-    read -r -p "Choose Xray update policy [default: 2]: " pick
+    read -r -p "Choose Xray update policy [default: 2]: " pick || die_cancel
     pick="$(trim "$pick")"
     [[ -z "$pick" ]] && pick="2"
   fi
@@ -2430,7 +2629,7 @@ wizard_question_6_logging() {
   printf "\n"
   local pick="1"
   if is_tty; then
-    read -r -p "    Choose logging profile [default: 1]: " pick
+    read -r -p "    Choose logging profile [default: 1]: " pick || die_cancel
     pick="$(trim "$pick")"
     [[ -z "$pick" ]] && pick="1"
   fi
