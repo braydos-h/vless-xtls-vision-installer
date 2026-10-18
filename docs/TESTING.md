@@ -40,7 +40,7 @@ bash tests/integration/fetch-image.sh debian12 /tmp/xray-cloud
 bash tests/integration/run-vm.sh /tmp/xray-cloud/disk.qcow2
 ```
 
-Image options: `debian12`, `debian13`, `ubuntu2204`, `ubuntu2404`. Downloads use
+Image options: `debian12`, `debian13`, `ubuntu2204`, `ubuntu2404`, `ubuntu2604`. Downloads use
 upstream HTTPS/checksums. QEMU uses TCG by default (slow but no KVM requirement);
 set `VM_ACCEL=kvm` only on an isolated runner with KVM access. On small test hosts,
 set `VM_MEMORY_MB=768` and run guests sequentially. Networking uses
@@ -59,12 +59,49 @@ uninstall. Timed expiry paths are included separately from explicit confirmation
 It is intentionally manual CI (`workflow_dispatch`, `vm_tests=true`) and does
 not execute privileged guest workloads from arbitrary pull requests.
 
-Static/unit and process/protocol jobs run on every push and PR. The four-OS VM
+Static/unit and process/protocol jobs run on every push and PR. The five-OS VM
 matrix runs only when explicitly dispatched. The automated suites currently use
 amd64. arm64/armv7 release selection is supported but full runtime integration
 must be checked on those architectures separately.
 
-## Results from this implementation workspace
+## Ubuntu 26.04 repair validation (2026-10-18)
+
+- `bash scripts/check.sh`: 18 Python tests and 67 Bats tests passed in isolated
+  Alpine and Ubuntu 26.04 WSL2 guests. Bash syntax, ShellCheck (including Ubuntu's
+  newer indirect-mock checks), shfmt, JSON examples, Python compilation,
+  generated standalone reproducibility and documentation checks passed.
+- New regressions cover all five supported releases; unsupported OS/architecture;
+  root/non-root; missing dependencies; storage/systemd/IPv6 failures; free,
+  occupied, uninspectable and managed listeners; invalid profiles; matching Apple
+  SNI/target; actual interactive wizard input through a pseudo-terminal; clean
+  standalone/install validation exits; DNS/TLS/ALPN/timeouts; download/package/
+  systemd exit codes; and original-error preservation through rollback.
+- Canonical Ubuntu 26.04 amd64 base rootfs SHA-256 was verified as
+  `046fcabb7f16f45a80ae11824664f2a07e01386c6fb1ed9dc1e225a66a6553a2`.
+  The disposable guest used systemd 259 as PID 1, Python 3.14.4, OpenSSL 3.5.5,
+  iproute2 6.19, and util-linux 2.41.3 from Ubuntu repositories.
+- Actual `preflight` with no options returned 0. Preflight using
+  `examples/ubuntu2604.json --network-check` also returned 0; Apple DNS and
+  verified TLS 1.3/X25519/h2 succeeded from that environment.
+- Actual `install --auto --non-interactive --profile-json examples/ubuntu2604.json
+  --xray-version v26.3.27` completed. Xray reported `Configuration OK`, systemd
+  reported the service active, `ss` showed its port 443 listener, and `diagnose`
+  returned all health checks true with no pending transaction.
+- Repeating installation preserved identity, clients, short IDs and rotation
+  state. `systemd-analyze verify` passed. Managed firewall, SSH and apt-upgrade
+  policy files and the automatic-update timer remained absent with default
+  policies. Injecting a candidate that passes syntax checks but exits at runtime
+  restored the previous generation and active listener with `ROLLED_BACK`.
+- Real Xray `v26.3.27` and `v26.10.10` passed the existing process/protocol suite:
+  `bash scripts/fetch-test-xray.sh VERSION /tmp/xray-test`, then
+  `python3 tests/integration/protocol.py /tmp/xray-test/unpack/xray`.
+
+The Ubuntu installation checks used a disposable WSL2 guest, not a fresh VPS or
+an independent QEMU kernel. The expanded five-OS QEMU/hosted CI matrix was not
+run in this repair session. Provider firewall and external client connectivity
+still require verification on the target VPS. No production VPS was modified.
+
+## Prior implementation results
 
 - 18 Python test methods and 44 Bats tests passed, including real error-code
   propagation, lock contention, failed activation recovery, durable journals,

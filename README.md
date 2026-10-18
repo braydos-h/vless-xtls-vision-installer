@@ -2,7 +2,7 @@
 ### The Best Xray Installer Script You'll Find.
 
 [![License: GPL-3.0-only](https://img.shields.io/badge/License-GPL--3.0--only-blue.svg)](LICENSE)
-![OS: Debian 12/13, Ubuntu 22.04/24.04](https://img.shields.io/badge/OS-Debian%2012%2F13%20%7C%20Ubuntu%2022.04%2F24.04-2f6feb)
+![OS: Debian 12/13, Ubuntu 22.04/24.04/26.04](https://img.shields.io/badge/OS-Debian%2012%2F13%20%7C%20Ubuntu%2022.04%2F24.04%2F26.04-2f6feb)
 ![Bash](https://img.shields.io/badge/Bash-5%2B-121011?logo=gnubash)
 ![Xray-core](https://img.shields.io/badge/Xray-core%20installer%20%26%20manager-0b7285)
 [![GitHub last commit](https://img.shields.io/github/last-commit/braydos-h/vless-xtls-vision-installer)](https://github.com/braydos-h/vless-xtls-vision-installer/commits/main)
@@ -21,7 +21,7 @@ sudo bash xray_reality_bootstrap.sh install
 ```
 
 > [!IMPORTANT]
-> New-install support targets are Debian 12/13 and Ubuntu 22.04/24.04 (apt + systemd PID 1; amd64/arm64/armv7). See [Supported operating systems](#supported-operating-systems) and [Installation walkthrough](#installation-walkthrough).
+> New-install support targets are Debian 12/13 and Ubuntu 22.04/24.04/26.04 (apt + systemd PID 1; amd64/arm64/armv7). See [Supported operating systems](#supported-operating-systems) and [Installation walkthrough](#installation-walkthrough).
 
 After installation, the helper is available at `/usr/local/sbin/xray-reality-bootstrap`:
 
@@ -79,13 +79,41 @@ sudo /usr/local/sbin/xray-reality-bootstrap export-client reality-main
 Supported new-install targets:
 
 - Debian 12, Debian 13
-- Ubuntu 22.04, Ubuntu 24.04
+- Ubuntu 22.04, Ubuntu 24.04, Ubuntu 26.04
 - apt-based hosts with systemd as PID 1
 - Architectures: `amd64`, `arm64`, `armv7`
 
 These are support targets, **not** a claim that every target was fully runtime-tested in the same workspace. See [docs/TESTING.md](docs/TESTING.md) for precise validation scope.
 
 Required tools used by the installer include Bash, Python 3, jq, OpenSSL, curl, util-linux, and iproute2. Git is required for checkout. Real install can bootstrap missing Python/jq and installs only missing selected dependencies; read-only commands do not install packages.
+
+Preflight reports `[PASS]`/`[FAIL]` for platform, root, dependencies, storage,
+address family, profile, and listener ownership. Unsupported releases are rejected
+with the supported versions listed. Use `--network-check` to additionally test
+DNS and verified TLS 1.3/X25519/h2 for the selected REALITY endpoint and SNI.
+Validation failures leave deployment and host policy unchanged and do not start
+rollback. Read-only preflight requires dependencies to be installed already:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl openssl jq python3 iproute2 util-linux
+```
+
+For the Ubuntu 26.04 / Apple target profile (equal SNI and destination host are
+valid), use the same profile for both checks and installation:
+
+```bash
+sudo bash xray_reality_bootstrap.sh preflight --profile-json examples/ubuntu2604.json --network-check
+sudo bash xray_reality_bootstrap.sh install --auto --non-interactive --profile-json examples/ubuntu2604.json
+sudo env XRAY_LOCATION_ASSET=/etc/xray/current /etc/xray/current/xray run -test -format json -config /etc/xray/current/config.json
+sudo systemctl is-active --quiet xray
+sudo ss -H -lntp 'sport = :443'
+sudo bash xray_reality_bootstrap.sh diagnose
+```
+
+The target's DNS, certificate, TLS and ALPN capabilities must pass from your VPS.
+Failures name the endpoint, operation and underlying error; selecting a supported
+OS does not bypass network or runtime checks.
 
 ## How REALITY + XTLS Vision works
 
@@ -286,7 +314,7 @@ No. Deployment quality improves safety and recoverability, but there is no unive
 No. Application-level routing applies to proxy traffic. Host-level isolation requires separate controls (for example, optional UID-scoped nftables egress) and still has limitations.
 
 **Can I rely on testing claims as production guarantees?**  
-No. Current documented results are specific: 18 Python tests + 44 Bats tests passed in implementation workspace; real amd64 Xray `v26.3.27` and `v26.10.10` protocol tests passed; Debian 12 and Ubuntu 24.04 disposable amd64 lifecycle phases passed; Debian 13, Ubuntu 22.04, and ARM runtime integration remain locally unverified; hosted workflows were not executed in that workspace; no production VPS was modified.
+No. The Ubuntu 26.04 repair passed 18 Python tests + 67 Bats tests, real Xray `v26.3.27`/`v26.10.10` protocol tests, and actual Ubuntu 26.04 installation, repeat-install identity preservation, systemd/port 443 health and failed-activation rollback in a disposable WSL2 guest. Prior Debian 12/Ubuntu 24.04 disposable VM results are recorded separately. The full five-OS VM matrix, Debian 13/Ubuntu 22.04 runtime integration, ARM runtime integration and hosted CI were not run during this repair; no production VPS was modified. See [validation scope](docs/TESTING.md).
 
 ## Technical documentation
 

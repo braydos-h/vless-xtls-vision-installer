@@ -82,21 +82,39 @@ diagnose_mode() {
   [[ $active == true && $config_ok == true && $listeners == true && $identity_ok == true && $nginx_ok == true && $firewall_ok == true && $timer_ok == true ]]
 }
 preflight_mode() {
-  local failure=false id version arch p service systemd=false root=false storage='' ipv6=true conflict=false
-  id=$(sed -n 's/^ID=//p' /etc/os-release | tr -d '"')
-  version=$(sed -n 's/^VERSION_ID=//p' /etc/os-release | tr -d '"')
-  arch=$(uname -m)
-  case "$id:$version" in debian:12 | debian:13 | ubuntu:22.04 | ubuntu:24.04) ;; *) failure=true ;; esac
-  case "$arch" in x86_64 | aarch64 | armv7l) ;; *) failure=true ;; esac
-  if [[ $(cat /proc/1/comm) == systemd ]]; then systemd=true; else failure=true; fi
-  if [[ $EUID == 0 ]]; then root=true; fi
-  storage=$(df -Pk / | awk 'NR==2{print $4}')
-  if [[ ! $storage =~ ^[0-9]+$ || $storage -lt 524288 ]]; then failure=true; fi
-  [[ -e /proc/net/if_inet6 ]] || ipv6=false
-  workspace
-  load_profile
-  if [[ $(profile_opt LISTEN_ADDRESS) == *:* && $ipv6 == false ]]; then failure=true; fi
-  printf 'Preflight: OS=%s %s arch=%s systemd=%s root=%s free_KiB=%s IPv6=%s\n' "$id" "$version" "$arch" "$systemd" "$root" "$storage" "$ipv6"
+  local failure=false p service storage='' ipv6=true dependencies_missing=false listeners main_pid previous_style
+  if ! check_platform; then failure=true; fi
+  for p in bash jq python3 curl openssl flock ss timeout getent systemctl apt-get dpkg-query runuser useradd; do
+    if ! command -v "$p" >/dev/null; then
+      log "[FAIL] Missing dependency: $p. Install the prerequisites listed in README, then rerun preflight."
+      dependencies_missing=true
+    fi
+  done
+  if [[ $dependencies_missing == true ]]; then
+    log 'Preflight FAILED. No deployment or host policy changes applied.'
+    return 1
+  fi
+  printf '[PASS] Required dependencies\n'
+  if ! storage=$(df -Pk / | awk 'NR==2{print $4}'); then storage=''; fi
+  if [[ ! $storage =~ ^[0-9]+$ || $storage -lt 524288 ]]; then
+    log "[FAIL] Free storage: ${storage:-unknown} KiB; at least 524288 KiB (512 MiB) required on /."
+    failure=true
+  else printf '[PASS] Free storage: %s KiB\n' "$storage"; fi
+  ipv6_available || ipv6=false
+  if ! workspace; then
+    log '[FAIL] Cannot create a private temporary workspace; check TMPDIR permissions and free space.'
+    return 1
+  fi
+  if ! load_profile >"$WORK/profile-check.log" 2>&1; then
+    log "[FAIL] Invalid profile: $(cat "$WORK/profile-check.log")"
+    log 'Preflight FAILED. No deployment or host policy changes applied.'
+    return 1
+  fi
+  printf '[PASS] Valid profile\n'
+  if [[ $(profile_opt LISTEN_ADDRESS) == *:* && $ipv6 == false ]]; then
+    log '[FAIL] IPv6 unavailable for the selected listener; enable IPv6 or set LISTEN_ADDRESS to 0.0.0.0.'
+    failure=true
+  elif [[ $ipv6 == true ]]; then printf '[PASS] IPv6 available\n'; else printf '[PASS] IPv4 listener selected; IPv6 unavailable\n'; fi
   printf 'Plan: install/update Xray deployment, dedicated service account, helper and selected managed files.\n'
   printf 'Selected policies: firewall=%s SSH=%s OS-upgrades=%s Xray-updates=%s OS-egress=%s\n' \
     "$(profile_opt FIREWALL_STYLE)" "$(profile_opt SSH_HARDENING)" "$(profile_opt UNATTENDED_UPGRADES_ENABLED)" "$(profile_opt XRAY_UPDATE_POLICY)" "$(profile_opt OS_PRIVATE_OUTBOUND)"
@@ -114,20 +132,29 @@ preflight_mode() {
   fi
   for p in "$(profile_opt LISTEN_PORT)" "$(profile_opt FALLBACK_PORT)"; do
     [[ -n $p ]] || continue
-    if command -v ss >/dev/null && ss -H -lntp "sport = :$p" | grep . >/dev/null; then
-      if ! ss -H -lntp "sport = :$p" | grep '"xray"' >/dev/null; then
+    if ! listeners=$(ss -H -lntp "sport = :$p" 2>&1); then
+      log "[FAIL] Cannot inspect TCP port $p with ss: $listeners"
+      failure=true
+    elif [[ -n $listeners ]]; then
+      main_pid=$(systemctl show -p MainPID --value xray 2>/dev/null) || main_pid=0
+      if [[ -f $STATE_FILE && $main_pid =~ ^[1-9][0-9]*$ ]] && runtime_identity "$main_pid" &&
+        [[ $listeners == *"pid=$main_pid,"* ]] && ! grep -v "pid=$main_pid," <<<"$listeners" | grep . >/dev/null; then
+        printf '[PASS] Port %s owned by the managed Xray deployment (PID %s)\n' "$p" "$main_pid"
+      else
         failure=true
-        conflict=true
+        log "[FAIL] Port $p occupied by: $listeners. Stop/reconfigure the conflicting service or choose another LISTEN_PORT."
       fi
-      printf 'Port %s already has a listener (conflict=%s).\n' "$p" "$conflict"
-    fi
+    else printf '[PASS] Port %s available\n' "$p"; fi
   done
   if [[ $(profile_opt CAMOUFLAGE_ENABLED) == yes ]] && command -v ss >/dev/null; then
     p=$(profile_opt CAMOUFLAGE_WEB_PORT)
-    if ss -H -lntp "sport = :$p" | grep . >/dev/null; then
+    if ! listeners=$(ss -H -lntp "sport = :$p" 2>&1); then
+      failure=true
+      log "[FAIL] Cannot inspect Nginx port $p with ss: $listeners"
+    elif [[ -n $listeners ]]; then
       if [[ ! -f $NGINX_FILE ]] || ! grep -q 'Managed by xray-reality-bootstrap v2' "$NGINX_FILE" || ! grep -Fq "listen 127.0.0.1:$p;" "$NGINX_FILE"; then
         failure=true
-        log "Local Nginx diagnostics port $p is already occupied by an unmanaged listener."
+        log "[FAIL] Local Nginx diagnostics port $p occupied by: $listeners"
       fi
     fi
   fi
@@ -138,59 +165,63 @@ preflight_mode() {
     [[ ! -f $p ]] || printf 'Existing configuration: %s\n' "$p"
   done
   if [[ -f $STATE_FILE ]]; then
-    local previous_style
-    previous_style=$(jq -r '.options.FIREWALL_STYLE' "$STATE_FILE")
+    previous_style=$(jq -er '.options.FIREWALL_STYLE' "$STATE_FILE") || previous_style=invalid
     if [[ $previous_style != none && $previous_style != "$(profile_opt FIREWALL_STYLE)" ]]; then
       failure=true
-      log 'Changing firewall managers requires clear-firewall and confirmation first.'
+      log '[FAIL] Changing firewall managers requires clear-firewall and confirmation first; inspect saved state if invalid.'
     fi
   fi
   if [[ ! -f $STATE_FILE && ! -f $XRAY_DIR/bootstrap-state.env ]]; then
     if [[ -f $UNIT || -e $BIN || -L $BIN ]] || systemctl cat xray.service >/dev/null 2>&1; then
-      log 'Existing unmanaged Xray service/binary found: refusing takeover.'
+      log '[FAIL] Existing unmanaged Xray service/binary found: refusing takeover; migrate or back up the existing installation first.'
       failure=true
     fi
   fi
   if [[ $(profile_opt FIREWALL_STYLE) == nftables ]] && command -v ufw >/dev/null && LC_ALL=C ufw status | grep '^Status: active' >/dev/null; then
     failure=true
-    log 'Firewall conflict: UFW is active.'
+    log '[FAIL] Firewall conflict: UFW is active; select none or manage the existing firewall separately.'
   fi
   if [[ $(profile_opt FIREWALL_STYLE) != none ]] && systemctl is-active --quiet firewalld; then
     failure=true
-    log 'Firewall conflict: firewalld is active.'
+    log '[FAIL] Firewall conflict: firewalld is active; select none and manage ports there.'
   fi
   if [[ $(profile_opt FIREWALL_STYLE) == ufw ]] && ! LC_ALL=C ufw status 2>/dev/null | grep '^Status: active' >/dev/null; then
     failure=true
-    log 'UFW must already be active.'
+    log '[FAIL] UFW must already be active; activate it separately or select none.'
   fi
   if [[ $(profile_opt UNATTENDED_UPGRADES_ENABLED) == yes && -f /etc/apt/apt.conf.d/20auto-upgrades ]]; then
     failure=true
-    log 'Existing apt periodic policy prevents installer opt-in; manage it separately.'
+    log '[FAIL] Existing apt periodic policy prevents installer opt-in; manage it separately.'
   fi
-  data egress-check "$PROFILE" /etc/resolv.conf
-  printf 'Dependencies: '
-  for p in bash jq python3 curl openssl flock ss; do
-    if command -v "$p" >/dev/null; then printf '%s=present ' "$p"; else printf '%s=missing ' "$p"; fi
-  done
-  printf '\nNo host policy changes applied. Package installation, TLS/network reachability, external SSH access and kernel rule activation require further checks.\n'
-  if [[ $NETWORK_CHECK == true ]]; then probe_reality; fi
-  [[ $failure == false ]]
+  if ! data egress-check "$PROFILE" /etc/resolv.conf >"$WORK/egress-check.log" 2>&1; then
+    log "[FAIL] Outbound policy validation: $(cat "$WORK/egress-check.log")"
+    failure=true
+  fi
+  if [[ $NETWORK_CHECK == true ]]; then
+    if ! probe_reality; then failure=true; fi
+  else printf 'Network/TLS reachability not tested; use --network-check.\n'; fi
+  if [[ $failure == true ]]; then
+    log 'Preflight FAILED. No deployment or host policy changes applied.'
+    return 1
+  fi
+  printf 'Preflight PASSED. No deployment or host policy changes applied.\n'
+  return 0
 }
 dry_run_mode() {
   log "Read-only plan for $MODE. No deployment, packages, SSH or firewall will be changed."
   case "$MODE" in
     install | preflight) preflight_mode ;;
     add-client | remove-client | rotate-client | rotate-shortid | finalize-shortid)
-      load_deployment
-      data mutate "$DESIRED" "$MODE" "$NAME" "$WINDOW" >"$WORK/proposed-state"
-      data config "$WORK/proposed-state" >"$WORK/proposed-config"
+      load_deployment || return $?
+      data mutate "$DESIRED" "$MODE" "$NAME" "$WINDOW" >"$WORK/proposed-state" || return $?
+      data config "$WORK/proposed-state" >"$WORK/proposed-config" || return $?
       printf 'Plan: validate and activate the requested client change, restart Xray, retain recovery generation.\n'
       jq '[.clients[]|{name,credentials:"redacted"}]' "$WORK/proposed-state"
       ;;
     *)
-      load_deployment
+      load_deployment || return $?
       if [[ $MODE == harden-ssh && -n $PROFILE_PATH ]]; then
-        load_profile
+        load_profile || return $?
         jq --slurpfile options "$PROFILE" '.options += ($options[0] | {SSH_HARDENING,SSH_PORT,CHANGE_SSH_PORT,DISABLE_PASSWORD_AUTH,HAS_SSH_KEYS})' "$DESIRED" >"$WORK/proposed-state"
         mv "$WORK/proposed-state" "$DESIRED"
       fi

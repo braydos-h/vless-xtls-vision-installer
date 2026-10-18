@@ -1,0 +1,11 @@
+{
+  "profile_format": "2",
+  "SERVER_NAME": "www.apple.com",
+  "DEST_ENDPOINT": "www.apple.com:443",
+  "LISTEN_PORT": "443",
+  "FIREWALL_STYLE": "none",
+  "SSH_HARDENING": "no",
+  "UNATTENDED_UPGRADES_ENABLED": "no",
+  "XRAY_UPDATE_POLICY": "manual",
+  "BLOCK_PRIVATE_OUTBOUND": "yes"
+}

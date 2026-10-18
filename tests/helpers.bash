@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-only
-# shellcheck disable=SC2317
+# shellcheck disable=SC2317,SC2329
 setup_sandbox() {
   # shellcheck disable=SC1091
   source "$BATS_TEST_DIRNAME/../xray_reality_bootstrap.sh"

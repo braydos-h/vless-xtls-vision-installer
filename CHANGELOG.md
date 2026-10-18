@@ -52,3 +52,11 @@
   silently revokes all clients immediately.
 - Uninstall retains recovery material and requires SSH restoration first if a
   managed SSH drop-in exists. This avoids restoring stale administrator configs.
+
+## Ubuntu 26.04 preflight repair
+
+- Share the Debian/Ubuntu support policy between preflight and install; add Ubuntu 26.04.
+- Report failed platform, dependency, storage, IPv6, profile, listener and policy checks explicitly.
+- Handle expected validation results without the deployment ERR/recovery message.
+- Keep wizard selections, verify managed listener ownership, and retain DNS/TLS/download/package/systemd error context and codes.
+- Add mocked preflight/interactive regressions and Ubuntu 26.04 to the optional VM matrix.

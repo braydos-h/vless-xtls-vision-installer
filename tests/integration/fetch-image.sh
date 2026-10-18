@@ -29,6 +29,12 @@ case "$os" in
     sums=SHA256SUMS
     hash=sha256sum
     ;;
+  ubuntu2604)
+    base=https://cloud-images.ubuntu.com/resolute/current
+    file=resolute-server-cloudimg-amd64.img
+    sums=SHA256SUMS
+    hash=sha256sum
+    ;;
   *) exit 2 ;;
 esac
 curl --proto '=https' -fLSs --retry 3 --max-time 120 "$base/$sums" -o "$directory/checksums"

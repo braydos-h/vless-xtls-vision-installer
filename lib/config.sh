@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-only
 load_deployment() {
-  workspace
+  workspace || return $?
   DESIRED=$WORK/state.json
   if [[ -f $STATE_FILE ]]; then
-    data state "$STATE_FILE" >"$DESIRED"
+    data state "$STATE_FILE" >"$DESIRED" || return $?
   elif [[ -f $XRAY_DIR/bootstrap-state.env && -f $XRAY_DIR/config.json ]]; then
-    data migrate "$XRAY_DIR/bootstrap-state.env" "$XRAY_DIR/config.json" >"$DESIRED"
+    data migrate "$XRAY_DIR/bootstrap-state.env" "$XRAY_DIR/config.json" >"$DESIRED" || return $?
     log 'Legacy deployment loaded without executing shell state. Host hardening defaults are now opt-in.'
     log 'Legacy firewall and primary SSH changes require manual review; they cannot safely be attributed or undone.'
   else
@@ -14,41 +14,44 @@ load_deployment() {
   fi
 }
 load_profile() {
-  workspace
+  workspace || return $?
   PROFILE=$WORK/options.json
   local legacy=false
   if [[ ! -f $STATE_FILE && -f $XRAY_DIR/bootstrap-state.env && -f $XRAY_DIR/config.json ]]; then legacy=true; fi
   if [[ -n $PROFILE_PATH ]]; then
     if [[ $legacy == true ]]; then
-      data profile-legacy "$PROFILE_PATH" "$XRAY_DIR/bootstrap-state.env" "$XRAY_DIR/config.json" >"$WORK/profile-loaded"
+      data profile-legacy "$PROFILE_PATH" "$XRAY_DIR/bootstrap-state.env" "$XRAY_DIR/config.json" >"$WORK/profile-loaded" || return $?
     elif [[ -f $STATE_FILE ]]; then
-      data profile-deployed "$PROFILE_PATH" "$STATE_FILE" >"$WORK/profile-loaded"
-    else data profile "$PROFILE_PATH" >"$WORK/profile-loaded"; fi
+      data profile-deployed "$PROFILE_PATH" "$STATE_FILE" >"$WORK/profile-loaded" || return $?
+    else data profile "$PROFILE_PATH" >"$WORK/profile-loaded" || return $?; fi
   elif [[ -f $STATE_FILE ]]; then
-    jq '.options' "$STATE_FILE" >"$WORK/profile-loaded"
+    jq '.options' "$STATE_FILE" >"$WORK/profile-loaded" || return $?
   elif [[ $legacy == true ]]; then
-    data migrate "$XRAY_DIR/bootstrap-state.env" "$XRAY_DIR/config.json" >"$WORK/legacy-profile-state"
-    jq '.options' "$WORK/legacy-profile-state" >"$WORK/profile-loaded"
+    data migrate "$XRAY_DIR/bootstrap-state.env" "$XRAY_DIR/config.json" >"$WORK/legacy-profile-state" || return $?
+    jq '.options' "$WORK/legacy-profile-state" >"$WORK/profile-loaded" || return $?
   elif [[ -f $XRAY_DIR/bootstrap-options.json && ! -L $XRAY_DIR/bootstrap-options.json ]]; then
-    data profile "$XRAY_DIR/bootstrap-options.json" >"$WORK/profile-loaded"
+    data profile "$XRAY_DIR/bootstrap-options.json" >"$WORK/profile-loaded" || return $?
   else
-    data defaults >"$WORK/profile-loaded"
+    data defaults >"$WORK/profile-loaded" || return $?
   fi
-  mv "$WORK/profile-loaded" "$PROFILE"
+  data profile "$WORK/profile-loaded" >"$WORK/profile-validated" || return $?
+  mv "$WORK/profile-validated" "$WORK/profile-loaded" || return $?
+  mv "$WORK/profile-loaded" "$PROFILE" || return $?
   if [[ -n $PIN ]]; then
-    jq --arg pin "$PIN" '.XRAY_PIN=$pin' "$PROFILE" >"$WORK/profile-next"
-    data profile "$WORK/profile-next" >"$PROFILE"
+    jq --arg pin "$PIN" '.XRAY_PIN=$pin' "$PROFILE" >"$WORK/profile-next" || return $?
+    data profile "$WORK/profile-next" >"$PROFILE" || return $?
   fi
   if [[ ${ALLOW_PRERELEASE_CLI:-false} == true ]]; then
-    set_profile ALLOW_PRERELEASE yes
+    set_profile ALLOW_PRERELEASE yes || return $?
   fi
   if [[ -n $SID_COUNT ]]; then
-    jq --arg count "$SID_COUNT" '.SHORT_ID_COUNT=$count' "$PROFILE" >"$WORK/profile-next"
-    data profile "$WORK/profile-next" >"$PROFILE"
+    jq --arg count "$SID_COUNT" '.SHORT_ID_COUNT=$count' "$PROFILE" >"$WORK/profile-next" || return $?
+    data profile "$WORK/profile-next" >"$PROFILE" || return $?
   fi
 }
+
 set_profile() {
-  jq --arg key "$1" --arg value "$2" '.[$key]=$value' "$PROFILE" >"$WORK/profile-next"
+  jq --arg key "$1" --arg value "$2" '.[$key]=$value' "$PROFILE" >"$WORK/profile-next" || return $?
   mv "$WORK/profile-next" "$PROFILE"
 }
 prompt_value() {

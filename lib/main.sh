@@ -88,12 +88,18 @@ parse_args() {
   case "$MODE" in add-client | remove-client | show-client | rotate-client | export-client | restore | test-client) [[ -n $NAME ]] || die "$MODE requires a name or backup ID" ;; esac
 }
 install_mode() {
-  load_profile
+  workspace
+  if load_profile >"$WORK/profile-check.log" 2>&1; then :; else
+    log "[FAIL] Invalid profile: $(cat "$WORK/profile-check.log")"
+    exit 1
+  fi
   [[ $AUTO == true ]] || wizard
   # Preflight checks run before packages or service changes. Requested profile
   # is passed through to prevent checks from using different wizard defaults.
   PROFILE_PATH=$PROFILE
-  preflight_mode || die 'Preflight failed; resolve the reported prerequisites.'
+  # A conditional call is intentional: expected validation failures must not
+  # trigger ERR/recovery. Preflight checks explicitly propagate helper errors.
+  if preflight_mode; then :; else exit $?; fi
   DESIRED=$WORK/state.json
   if [[ -f $STATE_FILE || -f $XRAY_DIR/bootstrap-state.env ]]; then
     load_deployment
@@ -186,6 +192,10 @@ main() {
   if [[ $MODE == install && $DRY_RUN == false && $AUTO == false ]] && [[ ! -t 0 || $NON_INTERACTIVE == true ]]; then
     die 'Noninteractive install requires --auto; no packages or host policies were changed.'
   fi
+  # Reject unsupported platforms before even bootstrapping parser packages.
+  if [[ $MODE == install && $DRY_RUN == false ]]; then
+    if check_platform; then :; else exit 1; fi
+  fi
   # Fresh VPS convenience: only real install can bootstrap parsers. Read-only
   # modes never install packages, write host policies or acquire a write lock.
   local bootstrap_packages=()
@@ -194,11 +204,14 @@ main() {
   if [[ $MODE == install && $DRY_RUN == false ]] && ((${#bootstrap_packages[@]} > 0)); then
     [[ $EUID == 0 ]] || die 'Run install with sudo.'
     lock_operation
-    retry env DEBIAN_FRONTEND=noninteractive apt-get update
-    retry env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-remove --no-install-recommends "${bootstrap_packages[@]}"
+    apt_action update
+    apt_action install -y --no-remove --no-install-recommends "${bootstrap_packages[@]}"
+  fi
+  if [[ $MODE == preflight || ($MODE == install && $DRY_RUN == true) ]]; then
+    if dry_run_mode; then exit 0; else exit $?; fi
   fi
   require_tools jq python3 openssl
-  if [[ $MODE == preflight || $DRY_RUN == true ]]; then
+  if [[ $DRY_RUN == true ]]; then
     dry_run_mode
     return
   fi
@@ -221,6 +234,8 @@ main() {
     die 'Pending/interrupted transition found. Run recover, or confirm-host after connectivity verification.'
   fi
   case "$MODE" in
+    # Keep install outside a conditional so errexit remains active for deployment
+    # mutations. Validation exits explicitly before a transaction is started.
     install) install_mode ;;
     update) update_mode ;;
     repair) repair_mode ;;

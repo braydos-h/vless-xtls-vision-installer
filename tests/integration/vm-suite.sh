@@ -42,6 +42,15 @@ fixture_ssh_daemon() {
 printf 'VM phase: %s\n' "${1:?phase required}"
 case "${1:?phase required}" in
   core)
+    apt-get update
+    apt-get install -y --no-remove --no-install-recommends ca-certificates curl openssl jq python3 iproute2 util-linux
+    bash xray_reality_bootstrap.sh preflight
+    bash xray_reality_bootstrap.sh preflight --profile-json examples/ubuntu2604.json
+    nonroot_installer=$(mktemp)
+    install -m 644 xray_reality_bootstrap.sh "$nonroot_installer"
+    if runuser -u nobody -- bash "$nonroot_installer" preflight >/root/nonroot-preflight.log 2>&1; then exit 1; fi
+    rm -f -- "$nonroot_installer"
+    grep -F '[FAIL] Root privileges required' /root/nonroot-preflight.log >/dev/null
     python3 - >/root/profile.json <<'PYCODE'
 import sys
 sys.path.insert(0, 'lib')
@@ -49,6 +58,7 @@ import data
 data.emit(data.profile({'PUBLIC_IP':'127.0.0.1', 'LISTEN_PORT':'443', 'LISTEN_ADDRESS':'::', 'XRAY_PIN':'v26.3.27'}))
 PYCODE
     bash xray_reality_bootstrap.sh install --auto --non-interactive --profile-json /root/profile.json
+    bash xray_reality_bootstrap.sh preflight --profile-json /root/profile.json
     jq '.identity,.clients,.short_ids' /etc/xray/current/state.json >/root/initial-credentials.json
     bash xray_reality_bootstrap.sh install --auto --non-interactive --profile-json /root/profile.json
     jq '.identity,.clients,.short_ids' /etc/xray/current/state.json >/root/repeated-credentials.json

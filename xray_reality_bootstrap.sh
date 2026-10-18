@@ -7,7 +7,7 @@ ENTRY_PATH=${BASH_SOURCE[0]}
 STANDALONE=true
 PROJECT_DIR=''
 data() {
-  python3 - "$@" <<'XRAY_BOOTSTRAP_PYTHON' || exit $?
+  python3 - "$@" <<'XRAY_BOOTSTRAP_PYTHON'
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 """Strict data handling. Never evaluate profiles or legacy shell state."""
@@ -647,6 +647,38 @@ die() {
   log "ERROR: $*"
   exit 1
 }
+# A single policy for standalone preflight and install (including parser bootstrap).
+supported_os() {
+  case "$1:$2" in
+    debian:12 | debian:13 | ubuntu:22.04 | ubuntu:24.04 | ubuntu:26.04) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+check_platform() {
+  local id version arch failure=false
+  id=$(sed -n 's/^ID=//p' /etc/os-release | tr -d '"')
+  version=$(sed -n 's/^VERSION_ID=//p' /etc/os-release | tr -d '"')
+  if supported_os "$id" "$version"; then
+    printf '[PASS] OS: %s %s\n' "$id" "$version"
+  else
+    log "[FAIL] Unsupported operating system: ${id:-unknown} ${version:-unknown}. Supported: Debian 12, 13; Ubuntu 22.04, 24.04, 26.04 (apt + systemd)."
+    failure=true
+  fi
+  arch=$(uname -m)
+  if arch_asset >/dev/null; then printf '[PASS] Architecture: %s\n' "$arch"; else failure=true; fi
+  if [[ $(cat /proc/1/comm) == systemd ]] && command -v systemctl >/dev/null; then
+    printf '[PASS] systemd available\n'
+  else
+    log '[FAIL] systemd must be PID 1 and systemctl must be installed; use a systemd VPS/VM.'
+    failure=true
+  fi
+  if [[ $(id -u) == 0 ]]; then printf '[PASS] Root privileges\n'; else
+    log '[FAIL] Root privileges required to validate listener ownership; run with sudo.'
+    failure=true
+  fi
+  [[ $failure == false ]]
+}
+ipv6_available() { [[ -e /proc/net/if_inet6 ]]; }
 require_tools() {
   local c
   for c in "$@"; do
@@ -680,7 +712,7 @@ lock_operation() {
 }
 workspace() {
   [[ -n $WORK ]] && return 0
-  WORK=$(mktemp -d)
+  WORK=$(mktemp -d) || return $?
   chmod 700 "$WORK"
 }
 cleanup() {
@@ -704,8 +736,16 @@ cleanup() {
 setup_traps() {
   trap cleanup EXIT
   # Never print BASH_COMMAND: it may contain keys or UUIDs.
-  trap 'log "ERROR: operation failed at line $LINENO (exit $?). Recovery will run if needed."' ERR
+  trap 'report_error "$?" "$LINENO" "${FUNCNAME[0]:-main}"' ERR
   trap 'exit 130' INT TERM HUP
+}
+report_error() {
+  local rc=$1 line=$2 operation=$3
+  log "ERROR: $MODE: $operation failed at line $line (exit $rc)."
+  if [[ $TX_ACTIVE == true ]]; then log 'Deployment transaction is active; cleanup will restore the previous deployment.'; fi
+  # ERR retains the original command status. Returning nonzero from the trap
+  # itself can interrupt Bash's stack unwinding before EXIT recovery runs.
+  return 0
 }
 atomic_file() {
   local src=$1 dest=$2 mode=${3:-600} tmp
@@ -748,12 +788,12 @@ retry() {
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-only
 load_deployment() {
-  workspace
+  workspace || return $?
   DESIRED=$WORK/state.json
   if [[ -f $STATE_FILE ]]; then
-    data state "$STATE_FILE" >"$DESIRED"
+    data state "$STATE_FILE" >"$DESIRED" || return $?
   elif [[ -f $XRAY_DIR/bootstrap-state.env && -f $XRAY_DIR/config.json ]]; then
-    data migrate "$XRAY_DIR/bootstrap-state.env" "$XRAY_DIR/config.json" >"$DESIRED"
+    data migrate "$XRAY_DIR/bootstrap-state.env" "$XRAY_DIR/config.json" >"$DESIRED" || return $?
     log 'Legacy deployment loaded without executing shell state. Host hardening defaults are now opt-in.'
     log 'Legacy firewall and primary SSH changes require manual review; they cannot safely be attributed or undone.'
   else
@@ -761,41 +801,44 @@ load_deployment() {
   fi
 }
 load_profile() {
-  workspace
+  workspace || return $?
   PROFILE=$WORK/options.json
   local legacy=false
   if [[ ! -f $STATE_FILE && -f $XRAY_DIR/bootstrap-state.env && -f $XRAY_DIR/config.json ]]; then legacy=true; fi
   if [[ -n $PROFILE_PATH ]]; then
     if [[ $legacy == true ]]; then
-      data profile-legacy "$PROFILE_PATH" "$XRAY_DIR/bootstrap-state.env" "$XRAY_DIR/config.json" >"$WORK/profile-loaded"
+      data profile-legacy "$PROFILE_PATH" "$XRAY_DIR/bootstrap-state.env" "$XRAY_DIR/config.json" >"$WORK/profile-loaded" || return $?
     elif [[ -f $STATE_FILE ]]; then
-      data profile-deployed "$PROFILE_PATH" "$STATE_FILE" >"$WORK/profile-loaded"
-    else data profile "$PROFILE_PATH" >"$WORK/profile-loaded"; fi
+      data profile-deployed "$PROFILE_PATH" "$STATE_FILE" >"$WORK/profile-loaded" || return $?
+    else data profile "$PROFILE_PATH" >"$WORK/profile-loaded" || return $?; fi
   elif [[ -f $STATE_FILE ]]; then
-    jq '.options' "$STATE_FILE" >"$WORK/profile-loaded"
+    jq '.options' "$STATE_FILE" >"$WORK/profile-loaded" || return $?
   elif [[ $legacy == true ]]; then
-    data migrate "$XRAY_DIR/bootstrap-state.env" "$XRAY_DIR/config.json" >"$WORK/legacy-profile-state"
-    jq '.options' "$WORK/legacy-profile-state" >"$WORK/profile-loaded"
+    data migrate "$XRAY_DIR/bootstrap-state.env" "$XRAY_DIR/config.json" >"$WORK/legacy-profile-state" || return $?
+    jq '.options' "$WORK/legacy-profile-state" >"$WORK/profile-loaded" || return $?
   elif [[ -f $XRAY_DIR/bootstrap-options.json && ! -L $XRAY_DIR/bootstrap-options.json ]]; then
-    data profile "$XRAY_DIR/bootstrap-options.json" >"$WORK/profile-loaded"
+    data profile "$XRAY_DIR/bootstrap-options.json" >"$WORK/profile-loaded" || return $?
   else
-    data defaults >"$WORK/profile-loaded"
+    data defaults >"$WORK/profile-loaded" || return $?
   fi
-  mv "$WORK/profile-loaded" "$PROFILE"
+  data profile "$WORK/profile-loaded" >"$WORK/profile-validated" || return $?
+  mv "$WORK/profile-validated" "$WORK/profile-loaded" || return $?
+  mv "$WORK/profile-loaded" "$PROFILE" || return $?
   if [[ -n $PIN ]]; then
-    jq --arg pin "$PIN" '.XRAY_PIN=$pin' "$PROFILE" >"$WORK/profile-next"
-    data profile "$WORK/profile-next" >"$PROFILE"
+    jq --arg pin "$PIN" '.XRAY_PIN=$pin' "$PROFILE" >"$WORK/profile-next" || return $?
+    data profile "$WORK/profile-next" >"$PROFILE" || return $?
   fi
   if [[ ${ALLOW_PRERELEASE_CLI:-false} == true ]]; then
-    set_profile ALLOW_PRERELEASE yes
+    set_profile ALLOW_PRERELEASE yes || return $?
   fi
   if [[ -n $SID_COUNT ]]; then
-    jq --arg count "$SID_COUNT" '.SHORT_ID_COUNT=$count' "$PROFILE" >"$WORK/profile-next"
-    data profile "$WORK/profile-next" >"$PROFILE"
+    jq --arg count "$SID_COUNT" '.SHORT_ID_COUNT=$count' "$PROFILE" >"$WORK/profile-next" || return $?
+    data profile "$WORK/profile-next" >"$PROFILE" || return $?
   fi
 }
+
 set_profile() {
-  jq --arg key "$1" --arg value "$2" '.[$key]=$value' "$PROFILE" >"$WORK/profile-next"
+  jq --arg key "$1" --arg value "$2" '.[$key]=$value' "$PROFILE" >"$WORK/profile-next" || return $?
   mv "$WORK/profile-next" "$PROFILE"
 }
 prompt_value() {
@@ -1018,7 +1061,7 @@ activate_generation() {
   begin_transaction
   write_service
   point_current "$GENERATION"
-  systemctl daemon-reload
+  systemd_action daemon-reload
   # Enforce the requested kernel boundary before a reconfigured process runs.
   # Client edits/updates retain the already deployed firewall policy.
   case "$MODE" in
@@ -1027,12 +1070,12 @@ activate_generation() {
       ;;
   esac
   case "$MODE" in
-    install | repair | restore | test) systemctl enable xray >/dev/null ;;
+    install | repair | restore | test) systemd_action enable xray >/dev/null ;;
   esac
   if [[ -f $JOURNAL/pending/was-active || $MODE == install || $MODE == repair || $MODE == restore || $MODE == test ]]; then
-    systemctl reset-failed xray
-    systemctl restart xray
-    service_health || die 'Xray startup/listener health check failed.'
+    systemd_action reset-failed xray
+    systemd_action restart xray
+    service_health || die 'Xray startup/listener health check failed: service must be active with its own configured TCP listeners. Inspect systemctl status xray and journalctl -u xray.'
   else
     log 'Service was inactive and remains inactive. Configuration/version validated; runtime health requires a manual start.'
   fi
@@ -1045,12 +1088,18 @@ arch_asset() {
     x86_64 | amd64) printf '%s' Xray-linux-64.zip ;;
     aarch64 | arm64) printf '%s' Xray-linux-arm64-v8a.zip ;;
     armv7l) printf '%s' Xray-linux-arm32-v7a.zip ;;
-    *) die 'Unsupported architecture (amd64, arm64 and armv7 supported).' ;;
+    *)
+      log "[FAIL] Unsupported architecture: $(uname -m). Supported: x86_64/amd64, aarch64/arm64, armv7l."
+      return 1
+      ;;
   esac
 }
 download() {
+  local rc
   [[ $1 == https://* ]] || die 'Downloads require HTTPS.'
-  retry curl --proto '=https' --proto-redir '=https' -fLSs --connect-timeout 15 --max-time 180 "$1" -o "$2"
+  if retry curl --proto '=https' --proto-redir '=https' -fLSs --connect-timeout 15 --max-time 180 "$1" -o "$2"; then return 0; else rc=$?; fi
+  log "ERROR: Download failed: HTTPS GET $1 (curl exit $rc; see curl error above)."
+  return "$rc"
 }
 validate_xray() {
   local binary=$1 config=$2 assets=$3
@@ -1156,6 +1205,12 @@ update_mode() {
 
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-only
+systemd_action() {
+  local rc
+  if systemctl "$@"; then return 0; else rc=$?; fi
+  log "ERROR: systemd activation failed: systemctl $* (exit $rc). Inspect systemctl status xray and journalctl -u xray on the VPS."
+  return "$rc"
+}
 validate_runtime_ownership() {
   if [[ -f $UNIT ]] && ! grep -q 'Managed by xray-reality-bootstrap v2' "$UNIT"; then
     if [[ -f $STATE_FILE || ! -f $XRAY_DIR/bootstrap-state.env ]]; then
@@ -1295,18 +1350,37 @@ EOF
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-only
 probe_reality() {
-  local target sni
+  local target sni host rc
   target=$(profile_opt DEST_ENDPOINT)
   sni=$(profile_opt SERVER_NAME)
-  require_tools openssl timeout
-  # Explicit version/group/ALPN, trusted certificate and matching SNI.
-  if ! timeout 20 openssl s_client -connect "$target" -servername "$sni" \
-    -tls1_3 -groups X25519 -alpn h2 -verify_hostname "$sni" -verify_return_error \
-    </dev/null >"$WORK/tls-probe" 2>&1; then
-    die 'REALITY target probe failed. Check endpoint reachability, TLS 1.3, X25519 and certificate/SNI; choose another target.'
+  require_tools openssl timeout getent
+  host=${target%:*}
+  host=${host#[}
+  host=${host%]}
+  if getent ahosts "$host" >"$WORK/dns-probe" 2>&1; then :; else
+    rc=$?
+    log "[FAIL] DNS resolution failed: getent ahosts $host for REALITY endpoint $target (exit $rc). Check the hostname and resolver configuration."
+    return "$rc"
   fi
-  grep -Eq 'TLSv1.3|TLS 1.3' "$WORK/tls-probe" || die 'Target did not negotiate TLS 1.3.'
-  grep -q 'ALPN protocol: h2' "$WORK/tls-probe" || die 'Target did not negotiate HTTP/2 (h2). Choose an h2-capable TLS site.'
+  # Explicit version/group/ALPN, trusted certificate and matching SNI.
+  if timeout 20 openssl s_client -connect "$target" -servername "$sni" \
+    -tls1_3 -groups X25519 -alpn h2 -verify_hostname "$sni" -verify_return_error \
+    </dev/null >"$WORK/tls-probe" 2>&1; then :; else
+    rc=$?
+    log "[FAIL] REALITY TLS negotiation failed: endpoint=$target SNI=$sni; openssl s_client TLS 1.3/X25519/h2 certificate verification (exit $rc)."
+    # OpenSSL output contains public peer data, never deployment credentials.
+    tail -n 20 "$WORK/tls-probe" >&2
+    [[ $rc != 124 ]] || log 'TLS probe timed out after 20 seconds; check endpoint reachability and outbound access.'
+    return "$rc"
+  fi
+  if ! grep -Eq 'TLSv1.3|TLS 1.3' "$WORK/tls-probe"; then
+    log "[FAIL] REALITY endpoint=$target SNI=$sni did not negotiate TLS 1.3. Choose a TLS 1.3 target."
+    return 1
+  fi
+  if ! grep -q 'ALPN protocol: h2' "$WORK/tls-probe"; then
+    log "[FAIL] REALITY endpoint=$target SNI=$sni did not negotiate HTTP/2 (h2). Choose an h2-capable target."
+    return 1
+  fi
   log 'REALITY target negotiated verified TLS 1.3 with X25519 and h2. This does not guarantee camouflage on every network.'
 }
 
@@ -1620,6 +1694,12 @@ restore_ssh_mode() {
 
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-only
+apt_action() {
+  local rc
+  if retry env DEBIAN_FRONTEND=noninteractive apt-get "$@"; then return 0; else rc=$?; fi
+  log "ERROR: Package operation failed: apt-get $* (exit $rc); check repository, network and package errors above."
+  return "$rc"
+}
 install_dependencies() {
   local packages=(ca-certificates curl openssl jq python3 iproute2 util-linux)
   local missing=() package
@@ -1639,8 +1719,8 @@ install_dependencies() {
     log 'Dependencies already installed; retaining existing package versions.'
     return 0
   fi
-  retry env DEBIAN_FRONTEND=noninteractive apt-get update
-  retry env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-remove --no-install-recommends "${missing[@]}"
+  apt_action update
+  apt_action install -y --no-remove --no-install-recommends "${missing[@]}"
 }
 configure_host_extras() {
   if [[ $(opt CAMOUFLAGE_ENABLED) == yes ]]; then
@@ -2003,21 +2083,39 @@ diagnose_mode() {
   [[ $active == true && $config_ok == true && $listeners == true && $identity_ok == true && $nginx_ok == true && $firewall_ok == true && $timer_ok == true ]]
 }
 preflight_mode() {
-  local failure=false id version arch p service systemd=false root=false storage='' ipv6=true conflict=false
-  id=$(sed -n 's/^ID=//p' /etc/os-release | tr -d '"')
-  version=$(sed -n 's/^VERSION_ID=//p' /etc/os-release | tr -d '"')
-  arch=$(uname -m)
-  case "$id:$version" in debian:12 | debian:13 | ubuntu:22.04 | ubuntu:24.04) ;; *) failure=true ;; esac
-  case "$arch" in x86_64 | aarch64 | armv7l) ;; *) failure=true ;; esac
-  if [[ $(cat /proc/1/comm) == systemd ]]; then systemd=true; else failure=true; fi
-  if [[ $EUID == 0 ]]; then root=true; fi
-  storage=$(df -Pk / | awk 'NR==2{print $4}')
-  if [[ ! $storage =~ ^[0-9]+$ || $storage -lt 524288 ]]; then failure=true; fi
-  [[ -e /proc/net/if_inet6 ]] || ipv6=false
-  workspace
-  load_profile
-  if [[ $(profile_opt LISTEN_ADDRESS) == *:* && $ipv6 == false ]]; then failure=true; fi
-  printf 'Preflight: OS=%s %s arch=%s systemd=%s root=%s free_KiB=%s IPv6=%s\n' "$id" "$version" "$arch" "$systemd" "$root" "$storage" "$ipv6"
+  local failure=false p service storage='' ipv6=true dependencies_missing=false listeners main_pid previous_style
+  if ! check_platform; then failure=true; fi
+  for p in bash jq python3 curl openssl flock ss timeout getent systemctl apt-get dpkg-query runuser useradd; do
+    if ! command -v "$p" >/dev/null; then
+      log "[FAIL] Missing dependency: $p. Install the prerequisites listed in README, then rerun preflight."
+      dependencies_missing=true
+    fi
+  done
+  if [[ $dependencies_missing == true ]]; then
+    log 'Preflight FAILED. No deployment or host policy changes applied.'
+    return 1
+  fi
+  printf '[PASS] Required dependencies\n'
+  if ! storage=$(df -Pk / | awk 'NR==2{print $4}'); then storage=''; fi
+  if [[ ! $storage =~ ^[0-9]+$ || $storage -lt 524288 ]]; then
+    log "[FAIL] Free storage: ${storage:-unknown} KiB; at least 524288 KiB (512 MiB) required on /."
+    failure=true
+  else printf '[PASS] Free storage: %s KiB\n' "$storage"; fi
+  ipv6_available || ipv6=false
+  if ! workspace; then
+    log '[FAIL] Cannot create a private temporary workspace; check TMPDIR permissions and free space.'
+    return 1
+  fi
+  if ! load_profile >"$WORK/profile-check.log" 2>&1; then
+    log "[FAIL] Invalid profile: $(cat "$WORK/profile-check.log")"
+    log 'Preflight FAILED. No deployment or host policy changes applied.'
+    return 1
+  fi
+  printf '[PASS] Valid profile\n'
+  if [[ $(profile_opt LISTEN_ADDRESS) == *:* && $ipv6 == false ]]; then
+    log '[FAIL] IPv6 unavailable for the selected listener; enable IPv6 or set LISTEN_ADDRESS to 0.0.0.0.'
+    failure=true
+  elif [[ $ipv6 == true ]]; then printf '[PASS] IPv6 available\n'; else printf '[PASS] IPv4 listener selected; IPv6 unavailable\n'; fi
   printf 'Plan: install/update Xray deployment, dedicated service account, helper and selected managed files.\n'
   printf 'Selected policies: firewall=%s SSH=%s OS-upgrades=%s Xray-updates=%s OS-egress=%s\n' \
     "$(profile_opt FIREWALL_STYLE)" "$(profile_opt SSH_HARDENING)" "$(profile_opt UNATTENDED_UPGRADES_ENABLED)" "$(profile_opt XRAY_UPDATE_POLICY)" "$(profile_opt OS_PRIVATE_OUTBOUND)"
@@ -2035,20 +2133,29 @@ preflight_mode() {
   fi
   for p in "$(profile_opt LISTEN_PORT)" "$(profile_opt FALLBACK_PORT)"; do
     [[ -n $p ]] || continue
-    if command -v ss >/dev/null && ss -H -lntp "sport = :$p" | grep . >/dev/null; then
-      if ! ss -H -lntp "sport = :$p" | grep '"xray"' >/dev/null; then
+    if ! listeners=$(ss -H -lntp "sport = :$p" 2>&1); then
+      log "[FAIL] Cannot inspect TCP port $p with ss: $listeners"
+      failure=true
+    elif [[ -n $listeners ]]; then
+      main_pid=$(systemctl show -p MainPID --value xray 2>/dev/null) || main_pid=0
+      if [[ -f $STATE_FILE && $main_pid =~ ^[1-9][0-9]*$ ]] && runtime_identity "$main_pid" &&
+        [[ $listeners == *"pid=$main_pid,"* ]] && ! grep -v "pid=$main_pid," <<<"$listeners" | grep . >/dev/null; then
+        printf '[PASS] Port %s owned by the managed Xray deployment (PID %s)\n' "$p" "$main_pid"
+      else
         failure=true
-        conflict=true
+        log "[FAIL] Port $p occupied by: $listeners. Stop/reconfigure the conflicting service or choose another LISTEN_PORT."
       fi
-      printf 'Port %s already has a listener (conflict=%s).\n' "$p" "$conflict"
-    fi
+    else printf '[PASS] Port %s available\n' "$p"; fi
   done
   if [[ $(profile_opt CAMOUFLAGE_ENABLED) == yes ]] && command -v ss >/dev/null; then
     p=$(profile_opt CAMOUFLAGE_WEB_PORT)
-    if ss -H -lntp "sport = :$p" | grep . >/dev/null; then
+    if ! listeners=$(ss -H -lntp "sport = :$p" 2>&1); then
+      failure=true
+      log "[FAIL] Cannot inspect Nginx port $p with ss: $listeners"
+    elif [[ -n $listeners ]]; then
       if [[ ! -f $NGINX_FILE ]] || ! grep -q 'Managed by xray-reality-bootstrap v2' "$NGINX_FILE" || ! grep -Fq "listen 127.0.0.1:$p;" "$NGINX_FILE"; then
         failure=true
-        log "Local Nginx diagnostics port $p is already occupied by an unmanaged listener."
+        log "[FAIL] Local Nginx diagnostics port $p occupied by: $listeners"
       fi
     fi
   fi
@@ -2059,59 +2166,63 @@ preflight_mode() {
     [[ ! -f $p ]] || printf 'Existing configuration: %s\n' "$p"
   done
   if [[ -f $STATE_FILE ]]; then
-    local previous_style
-    previous_style=$(jq -r '.options.FIREWALL_STYLE' "$STATE_FILE")
+    previous_style=$(jq -er '.options.FIREWALL_STYLE' "$STATE_FILE") || previous_style=invalid
     if [[ $previous_style != none && $previous_style != "$(profile_opt FIREWALL_STYLE)" ]]; then
       failure=true
-      log 'Changing firewall managers requires clear-firewall and confirmation first.'
+      log '[FAIL] Changing firewall managers requires clear-firewall and confirmation first; inspect saved state if invalid.'
     fi
   fi
   if [[ ! -f $STATE_FILE && ! -f $XRAY_DIR/bootstrap-state.env ]]; then
     if [[ -f $UNIT || -e $BIN || -L $BIN ]] || systemctl cat xray.service >/dev/null 2>&1; then
-      log 'Existing unmanaged Xray service/binary found: refusing takeover.'
+      log '[FAIL] Existing unmanaged Xray service/binary found: refusing takeover; migrate or back up the existing installation first.'
       failure=true
     fi
   fi
   if [[ $(profile_opt FIREWALL_STYLE) == nftables ]] && command -v ufw >/dev/null && LC_ALL=C ufw status | grep '^Status: active' >/dev/null; then
     failure=true
-    log 'Firewall conflict: UFW is active.'
+    log '[FAIL] Firewall conflict: UFW is active; select none or manage the existing firewall separately.'
   fi
   if [[ $(profile_opt FIREWALL_STYLE) != none ]] && systemctl is-active --quiet firewalld; then
     failure=true
-    log 'Firewall conflict: firewalld is active.'
+    log '[FAIL] Firewall conflict: firewalld is active; select none and manage ports there.'
   fi
   if [[ $(profile_opt FIREWALL_STYLE) == ufw ]] && ! LC_ALL=C ufw status 2>/dev/null | grep '^Status: active' >/dev/null; then
     failure=true
-    log 'UFW must already be active.'
+    log '[FAIL] UFW must already be active; activate it separately or select none.'
   fi
   if [[ $(profile_opt UNATTENDED_UPGRADES_ENABLED) == yes && -f /etc/apt/apt.conf.d/20auto-upgrades ]]; then
     failure=true
-    log 'Existing apt periodic policy prevents installer opt-in; manage it separately.'
+    log '[FAIL] Existing apt periodic policy prevents installer opt-in; manage it separately.'
   fi
-  data egress-check "$PROFILE" /etc/resolv.conf
-  printf 'Dependencies: '
-  for p in bash jq python3 curl openssl flock ss; do
-    if command -v "$p" >/dev/null; then printf '%s=present ' "$p"; else printf '%s=missing ' "$p"; fi
-  done
-  printf '\nNo host policy changes applied. Package installation, TLS/network reachability, external SSH access and kernel rule activation require further checks.\n'
-  if [[ $NETWORK_CHECK == true ]]; then probe_reality; fi
-  [[ $failure == false ]]
+  if ! data egress-check "$PROFILE" /etc/resolv.conf >"$WORK/egress-check.log" 2>&1; then
+    log "[FAIL] Outbound policy validation: $(cat "$WORK/egress-check.log")"
+    failure=true
+  fi
+  if [[ $NETWORK_CHECK == true ]]; then
+    if ! probe_reality; then failure=true; fi
+  else printf 'Network/TLS reachability not tested; use --network-check.\n'; fi
+  if [[ $failure == true ]]; then
+    log 'Preflight FAILED. No deployment or host policy changes applied.'
+    return 1
+  fi
+  printf 'Preflight PASSED. No deployment or host policy changes applied.\n'
+  return 0
 }
 dry_run_mode() {
   log "Read-only plan for $MODE. No deployment, packages, SSH or firewall will be changed."
   case "$MODE" in
     install | preflight) preflight_mode ;;
     add-client | remove-client | rotate-client | rotate-shortid | finalize-shortid)
-      load_deployment
-      data mutate "$DESIRED" "$MODE" "$NAME" "$WINDOW" >"$WORK/proposed-state"
-      data config "$WORK/proposed-state" >"$WORK/proposed-config"
+      load_deployment || return $?
+      data mutate "$DESIRED" "$MODE" "$NAME" "$WINDOW" >"$WORK/proposed-state" || return $?
+      data config "$WORK/proposed-state" >"$WORK/proposed-config" || return $?
       printf 'Plan: validate and activate the requested client change, restart Xray, retain recovery generation.\n'
       jq '[.clients[]|{name,credentials:"redacted"}]' "$WORK/proposed-state"
       ;;
     *)
-      load_deployment
+      load_deployment || return $?
       if [[ $MODE == harden-ssh && -n $PROFILE_PATH ]]; then
-        load_profile
+        load_profile || return $?
         jq --slurpfile options "$PROFILE" '.options += ($options[0] | {SSH_HARDENING,SSH_PORT,CHANGE_SSH_PORT,DISABLE_PASSWORD_AUTH,HAS_SSH_KEYS})' "$DESIRED" >"$WORK/proposed-state"
         mv "$WORK/proposed-state" "$DESIRED"
       fi
@@ -2223,12 +2334,18 @@ parse_args() {
   case "$MODE" in add-client | remove-client | show-client | rotate-client | export-client | restore | test-client) [[ -n $NAME ]] || die "$MODE requires a name or backup ID" ;; esac
 }
 install_mode() {
-  load_profile
+  workspace
+  if load_profile >"$WORK/profile-check.log" 2>&1; then :; else
+    log "[FAIL] Invalid profile: $(cat "$WORK/profile-check.log")"
+    exit 1
+  fi
   [[ $AUTO == true ]] || wizard
   # Preflight checks run before packages or service changes. Requested profile
   # is passed through to prevent checks from using different wizard defaults.
   PROFILE_PATH=$PROFILE
-  preflight_mode || die 'Preflight failed; resolve the reported prerequisites.'
+  # A conditional call is intentional: expected validation failures must not
+  # trigger ERR/recovery. Preflight checks explicitly propagate helper errors.
+  if preflight_mode; then :; else exit $?; fi
   DESIRED=$WORK/state.json
   if [[ -f $STATE_FILE || -f $XRAY_DIR/bootstrap-state.env ]]; then
     load_deployment
@@ -2321,6 +2438,10 @@ main() {
   if [[ $MODE == install && $DRY_RUN == false && $AUTO == false ]] && [[ ! -t 0 || $NON_INTERACTIVE == true ]]; then
     die 'Noninteractive install requires --auto; no packages or host policies were changed.'
   fi
+  # Reject unsupported platforms before even bootstrapping parser packages.
+  if [[ $MODE == install && $DRY_RUN == false ]]; then
+    if check_platform; then :; else exit 1; fi
+  fi
   # Fresh VPS convenience: only real install can bootstrap parsers. Read-only
   # modes never install packages, write host policies or acquire a write lock.
   local bootstrap_packages=()
@@ -2329,11 +2450,14 @@ main() {
   if [[ $MODE == install && $DRY_RUN == false ]] && ((${#bootstrap_packages[@]} > 0)); then
     [[ $EUID == 0 ]] || die 'Run install with sudo.'
     lock_operation
-    retry env DEBIAN_FRONTEND=noninteractive apt-get update
-    retry env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-remove --no-install-recommends "${bootstrap_packages[@]}"
+    apt_action update
+    apt_action install -y --no-remove --no-install-recommends "${bootstrap_packages[@]}"
+  fi
+  if [[ $MODE == preflight || ($MODE == install && $DRY_RUN == true) ]]; then
+    if dry_run_mode; then exit 0; else exit $?; fi
   fi
   require_tools jq python3 openssl
-  if [[ $MODE == preflight || $DRY_RUN == true ]]; then
+  if [[ $DRY_RUN == true ]]; then
     dry_run_mode
     return
   fi
@@ -2356,6 +2480,8 @@ main() {
     die 'Pending/interrupted transition found. Run recover, or confirm-host after connectivity verification.'
   fi
   case "$MODE" in
+    # Keep install outside a conditional so errexit remains active for deployment
+    # mutations. Validation exits explicitly before a transaction is started.
     install) install_mode ;;
     update) update_mode ;;
     repair) repair_mode ;;

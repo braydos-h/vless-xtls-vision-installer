@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-only
+systemd_action() {
+  local rc
+  if systemctl "$@"; then return 0; else rc=$?; fi
+  log "ERROR: systemd activation failed: systemctl $* (exit $rc). Inspect systemctl status xray and journalctl -u xray on the VPS."
+  return "$rc"
+}
 validate_runtime_ownership() {
   if [[ -f $UNIT ]] && ! grep -q 'Managed by xray-reality-bootstrap v2' "$UNIT"; then
     if [[ -f $STATE_FILE || ! -f $XRAY_DIR/bootstrap-state.env ]]; then

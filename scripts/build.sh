@@ -16,7 +16,7 @@ ENTRY_PATH=${BASH_SOURCE[0]}
 STANDALONE=true
 PROJECT_DIR=''
 data() {
-  python3 - "$@" <<'XRAY_BOOTSTRAP_PYTHON' || exit $?
+  python3 - "$@" <<'XRAY_BOOTSTRAP_PYTHON'
 EOF
   cat "$project/lib/data.py"
   printf '\nXRAY_BOOTSTRAP_PYTHON\n}\n'

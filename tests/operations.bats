@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # SPDX-License-Identifier: GPL-3.0-only
 # Bats supplies fixture globals, runs each test in a subshell, and calls mocks indirectly.
-# shellcheck disable=SC2154,SC2030,SC2031,SC2317
+# shellcheck disable=SC2154,SC2030,SC2031,SC2317,SC2329
 load helpers.bash
 bats_require_minimum_version 1.5.0
 setup() { setup_sandbox; }
@@ -15,6 +15,27 @@ setup() { setup_sandbox; }
   [ "$(cat "$BIN")" = 'old binary' ]
   grep -qx 'old unit' "$UNIT"
   [ -f "$SANDBOX/active" ]
+  [ ! -d "$JOURNAL/pending" ]
+}
+
+@test "ERR reporting preserves original activation exit code and completes rollback" {
+  export BATS_TEST_DIRNAME BATS_TEST_TMPDIR
+  run bash -c '
+    source "$1"; setup_sandbox
+    eval "$(declare -f systemctl | sed "1s/systemctl/base_systemctl/")"
+    touch "$SANDBOX/fail-once"
+    systemctl() {
+      if [[ $1 == restart && -f $SANDBOX/fail-once ]]; then
+        rm "$SANDBOX/fail-once"; return 37
+      fi
+      base_systemctl "$@"
+    }
+    setup_traps
+    activate_generation
+  ' _ "$BATS_TEST_DIRNAME/helpers.bash"
+  [ "$status" -eq 37 ]
+  [[ "$output" == *'systemctl restart xray (exit 37)'* && "$output" == *ROLLED_BACK* ]]
+  [ "$(readlink "$CURRENT")" = "deployments/$old" ]
   [ ! -d "$JOURNAL/pending" ]
 }
 

@@ -147,7 +147,7 @@ activate_generation() {
   begin_transaction
   write_service
   point_current "$GENERATION"
-  systemctl daemon-reload
+  systemd_action daemon-reload
   # Enforce the requested kernel boundary before a reconfigured process runs.
   # Client edits/updates retain the already deployed firewall policy.
   case "$MODE" in
@@ -156,12 +156,12 @@ activate_generation() {
       ;;
   esac
   case "$MODE" in
-    install | repair | restore | test) systemctl enable xray >/dev/null ;;
+    install | repair | restore | test) systemd_action enable xray >/dev/null ;;
   esac
   if [[ -f $JOURNAL/pending/was-active || $MODE == install || $MODE == repair || $MODE == restore || $MODE == test ]]; then
-    systemctl reset-failed xray
-    systemctl restart xray
-    service_health || die 'Xray startup/listener health check failed.'
+    systemd_action reset-failed xray
+    systemd_action restart xray
+    service_health || die 'Xray startup/listener health check failed: service must be active with its own configured TCP listeners. Inspect systemctl status xray and journalctl -u xray.'
   else
     log 'Service was inactive and remains inactive. Configuration/version validated; runtime health requires a manual start.'
   fi

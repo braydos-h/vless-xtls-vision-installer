@@ -39,6 +39,38 @@ die() {
   log "ERROR: $*"
   exit 1
 }
+# A single policy for standalone preflight and install (including parser bootstrap).
+supported_os() {
+  case "$1:$2" in
+    debian:12 | debian:13 | ubuntu:22.04 | ubuntu:24.04 | ubuntu:26.04) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+check_platform() {
+  local id version arch failure=false
+  id=$(sed -n 's/^ID=//p' /etc/os-release | tr -d '"')
+  version=$(sed -n 's/^VERSION_ID=//p' /etc/os-release | tr -d '"')
+  if supported_os "$id" "$version"; then
+    printf '[PASS] OS: %s %s\n' "$id" "$version"
+  else
+    log "[FAIL] Unsupported operating system: ${id:-unknown} ${version:-unknown}. Supported: Debian 12, 13; Ubuntu 22.04, 24.04, 26.04 (apt + systemd)."
+    failure=true
+  fi
+  arch=$(uname -m)
+  if arch_asset >/dev/null; then printf '[PASS] Architecture: %s\n' "$arch"; else failure=true; fi
+  if [[ $(cat /proc/1/comm) == systemd ]] && command -v systemctl >/dev/null; then
+    printf '[PASS] systemd available\n'
+  else
+    log '[FAIL] systemd must be PID 1 and systemctl must be installed; use a systemd VPS/VM.'
+    failure=true
+  fi
+  if [[ $(id -u) == 0 ]]; then printf '[PASS] Root privileges\n'; else
+    log '[FAIL] Root privileges required to validate listener ownership; run with sudo.'
+    failure=true
+  fi
+  [[ $failure == false ]]
+}
+ipv6_available() { [[ -e /proc/net/if_inet6 ]]; }
 require_tools() {
   local c
   for c in "$@"; do
@@ -72,7 +104,7 @@ lock_operation() {
 }
 workspace() {
   [[ -n $WORK ]] && return 0
-  WORK=$(mktemp -d)
+  WORK=$(mktemp -d) || return $?
   chmod 700 "$WORK"
 }
 cleanup() {
@@ -96,8 +128,16 @@ cleanup() {
 setup_traps() {
   trap cleanup EXIT
   # Never print BASH_COMMAND: it may contain keys or UUIDs.
-  trap 'log "ERROR: operation failed at line $LINENO (exit $?). Recovery will run if needed."' ERR
+  trap 'report_error "$?" "$LINENO" "${FUNCNAME[0]:-main}"' ERR
   trap 'exit 130' INT TERM HUP
+}
+report_error() {
+  local rc=$1 line=$2 operation=$3
+  log "ERROR: $MODE: $operation failed at line $line (exit $rc)."
+  if [[ $TX_ACTIVE == true ]]; then log 'Deployment transaction is active; cleanup will restore the previous deployment.'; fi
+  # ERR retains the original command status. Returning nonzero from the trap
+  # itself can interrupt Bash's stack unwinding before EXIT recovery runs.
+  return 0
 }
 atomic_file() {
   local src=$1 dest=$2 mode=${3:-600} tmp

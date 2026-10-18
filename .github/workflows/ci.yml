@@ -34,7 +34,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [debian12, debian13, ubuntu2204, ubuntu2404]
+        os: [debian12, debian13, ubuntu2204, ubuntu2404, ubuntu2604]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - run: sudo apt-get update && sudo apt-get install -y qemu-system-x86 qemu-utils cloud-image-utils

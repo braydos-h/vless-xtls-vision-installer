@@ -5,12 +5,18 @@ arch_asset() {
     x86_64 | amd64) printf '%s' Xray-linux-64.zip ;;
     aarch64 | arm64) printf '%s' Xray-linux-arm64-v8a.zip ;;
     armv7l) printf '%s' Xray-linux-arm32-v7a.zip ;;
-    *) die 'Unsupported architecture (amd64, arm64 and armv7 supported).' ;;
+    *)
+      log "[FAIL] Unsupported architecture: $(uname -m). Supported: x86_64/amd64, aarch64/arm64, armv7l."
+      return 1
+      ;;
   esac
 }
 download() {
+  local rc
   [[ $1 == https://* ]] || die 'Downloads require HTTPS.'
-  retry curl --proto '=https' --proto-redir '=https' -fLSs --connect-timeout 15 --max-time 180 "$1" -o "$2"
+  if retry curl --proto '=https' --proto-redir '=https' -fLSs --connect-timeout 15 --max-time 180 "$1" -o "$2"; then return 0; else rc=$?; fi
+  log "ERROR: Download failed: HTTPS GET $1 (curl exit $rc; see curl error above)."
+  return "$rc"
 }
 validate_xray() {
   local binary=$1 config=$2 assets=$3

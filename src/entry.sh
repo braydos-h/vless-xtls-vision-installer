@@ -10,5 +10,5 @@ for module in common config transaction xray systemd reality firewall ssh host b
   # shellcheck disable=SC1090
   source "$PROJECT_DIR/lib/$module.sh"
 done
-data() { python3 "$PROJECT_DIR/lib/data.py" "$@" || exit $?; }
+data() { python3 "$PROJECT_DIR/lib/data.py" "$@"; }
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then main "$@"; fi

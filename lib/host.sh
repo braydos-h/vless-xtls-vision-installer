@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-only
+apt_action() {
+  local rc
+  if retry env DEBIAN_FRONTEND=noninteractive apt-get "$@"; then return 0; else rc=$?; fi
+  log "ERROR: Package operation failed: apt-get $* (exit $rc); check repository, network and package errors above."
+  return "$rc"
+}
 install_dependencies() {
   local packages=(ca-certificates curl openssl jq python3 iproute2 util-linux)
   local missing=() package
@@ -19,8 +25,8 @@ install_dependencies() {
     log 'Dependencies already installed; retaining existing package versions.'
     return 0
   fi
-  retry env DEBIAN_FRONTEND=noninteractive apt-get update
-  retry env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-remove --no-install-recommends "${missing[@]}"
+  apt_action update
+  apt_action install -y --no-remove --no-install-recommends "${missing[@]}"
 }
 configure_host_extras() {
   if [[ $(opt CAMOUFLAGE_ENABLED) == yes ]]; then
