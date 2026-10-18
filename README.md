@@ -1,4 +1,4 @@
-# 🚀 VLESS + REALITY + XTLS Vision Installer
+#  VLESS + REALITY + XTLS Vision Installer
 ### The Best Xray Installer Script You'll Find.
 
 [![License: GPL-3.0-only](https://img.shields.io/badge/License-GPL--3.0--only-blue.svg)](LICENSE)
