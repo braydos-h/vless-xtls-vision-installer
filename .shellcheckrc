@@ -1,0 +1,4 @@
+# Modules share globals through the standalone entry point, which is also linted.
+shell=bash
+external-sources=true
+disable=SC2034

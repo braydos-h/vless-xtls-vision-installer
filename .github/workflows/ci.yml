@@ -1,0 +1,44 @@
+name: Validation
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      vm_tests:
+        description: Run isolated disposable cloud VM lifecycle tests (slow)
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  static-and-unit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: sudo apt-get update && sudo apt-get install -y shellcheck shfmt bats jq
+      - run: bash scripts/check.sh
+  protocol:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        xray: [v26.3.27, v26.10.10]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: bash scripts/fetch-test-xray.sh '${{ matrix.xray }}' "$RUNNER_TEMP/xray"
+      - run: python3 tests/integration/protocol.py "$RUNNER_TEMP/xray/unpack/xray"
+  vm-lifecycle:
+    if: github.event_name == 'workflow_dispatch' && inputs.vm_tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [debian12, debian13, ubuntu2204, ubuntu2404]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: sudo apt-get update && sudo apt-get install -y qemu-system-x86 qemu-utils cloud-image-utils
+      - name: Fetch verified cloud image
+        run: bash tests/integration/fetch-image.sh '${{ matrix.os }}' "$RUNNER_TEMP/cloud"
+      - name: Run lifecycle in a VM with systemd and its own kernel firewall
+        run: bash tests/integration/run-vm.sh "$RUNNER_TEMP/cloud/disk.qcow2"
