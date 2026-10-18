@@ -140,5 +140,7 @@ PY
       script -q -e -c '\''bash "$BATS_TEST_DIRNAME/wizard-fixture.sh"'\'' /dev/null
   '
   [ "$status" -eq 0 ]
+  [[ "$output" == *'VLESS link for reality-main:'* ]]
+  [[ "$output" == *'vless://'*'@8.8.8.8:9443?'* ]]
   [[ "$output" == *'wizard blank public address to installed state to usable client export'* ]]
 }

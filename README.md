@@ -27,6 +27,8 @@ Enter, choose **Customize settings**, or cancel. Customization includes numbered
 firewall, update and yes/no choices, followed by a settings review. Use `-` to
 clear an optional alternate port or client-facing server address. Ctrl+C cancels.
 Existing profiles and saved settings supply the defaults on subsequent installs.
+When installation finishes, it prints the first client's VLESS link for copying
+into your client app. Display it again with `show-client NAME`.
 
 You can also run commands directly, including `preflight` and `install`:
 
@@ -196,7 +198,8 @@ sudo /usr/local/sbin/xray-reality-bootstrap rotate-shortid --migration-window 60
 sudo /usr/local/sbin/xray-reality-bootstrap finalize-shortid
 ```
 
-`show-client` prints credentials intentionally. Normal operations redact credentials.
+`install` prints the first client's VLESS link when deployment finishes, and
+`show-client` prints the requested client's link. Other operations redact credentials.
 
 ## Automated and advanced configuration
 

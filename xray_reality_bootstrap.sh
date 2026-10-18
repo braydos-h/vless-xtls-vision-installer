@@ -2495,7 +2495,8 @@ Options:
   --public-ip SERVER_IP_OR_HOSTNAME (install/preflight or client export override)
 Install defaults: no firewall/SSH/OS changes, manual Xray updates, private routing block.
 Use preflight first. Firewall and SSH transitions require confirm-host in a new
-SSH session within 180 seconds. Credentials are printed only by show-client.
+SSH session within 180 seconds. Install prints the first client's VLESS link;
+use show-client NAME to display a link again.
 EOF
 }
 parse_args() {
@@ -2613,8 +2614,16 @@ finish_install() {
     # Leave durable journal for the separate confirmer/watchdog.
     TX_ACTIVE=false
   else commit_transaction; fi
-  log 'Xray deployed. Run diagnose, then export-client NAME. No credentials were printed.'
+  log 'Xray deployed. Run diagnose to check the deployment.'
   [[ $(opt SSH_HARDENING) != yes ]] || log 'SSH option requested: run harden-ssh separately after confirming proxy installation.'
+  if [[ $MODE == install ]]; then
+    local NAME MODE=show-client
+    NAME=$(jq -r '.clients[0].name' "$DESIRED")
+    log "VLESS link for $NAME:"
+    if export_client_mode; then :; else
+      log "Xray is deployed, but the client link could not be displayed. Run show-client \"$NAME\" to retry."
+    fi
+  fi
 }
 repair_mode() {
   load_deployment
