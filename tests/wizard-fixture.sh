@@ -10,9 +10,19 @@ setup_preflight
 init_paths() { :; }
 lock_operation() { :; }
 install_dependencies() {
-  [[ $(profile_opt SERVER_NAME) == www.apple.com ]]
-  [[ $(profile_opt DEST_ENDPOINT) == www.apple.com:443 ]]
-  [[ $(profile_opt LISTEN_PORT) == 9443 ]]
+  if [[ ${WIZARD_DEFAULT_TEST:-false} == true ]]; then
+    [[ $(profile_opt SERVER_NAME) == www.cloudflare.com ]]
+    [[ $(profile_opt DEST_ENDPOINT) == www.cloudflare.com:443 ]]
+    [[ $(profile_opt LISTEN_PORT) == 443 ]]
+    [[ $(profile_opt FIREWALL_STYLE) == none ]]
+    [[ $(profile_opt XRAY_UPDATE_POLICY) == manual ]]
+    [[ $(profile_opt BLOCK_PRIVATE_OUTBOUND) == yes ]]
+    printf 'WIZARD DEFAULTS RETAINED AT PACKAGE STAGE\n'
+  else
+    [[ $(profile_opt SERVER_NAME) == www.apple.com ]]
+    [[ $(profile_opt DEST_ENDPOINT) == www.apple.com:443 ]]
+    [[ $(profile_opt LISTEN_PORT) == 9443 ]]
+  fi
   [[ $(profile_opt PUBLIC_IP) == 8.8.8.8 ]]
   printf 'WIZARD PROFILE RETAINED AT PACKAGE STAGE\n'
   if [[ ${WIZARD_EXPORT_TEST:-false} != true ]]; then exit 0; fi
@@ -43,7 +53,7 @@ PY
   apply_firewall() { :; }
   commit_transaction() { :; }
 fi
-main install
+if [[ ${WIZARD_STARTUP_MENU:-false} == true ]]; then main; else main install; fi
 if [[ ${WIZARD_EXPORT_TEST:-false} == true ]]; then
   main export-client reality-main
   grep -F '@8.8.8.8:9443?' "$CLIENT_DIR/"*.uri.txt >/dev/null

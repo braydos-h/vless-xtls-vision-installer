@@ -136,7 +136,7 @@ PY
   export BATS_TEST_DIRNAME BATS_TEST_TMPDIR
   export WIZARD_EXPORT_TEST=true
   run bash -c '
-    printf "www.apple.com\nwww.apple.com:443\n9443\n\n\n\n\n\n\n\n" |
+    printf "2\nwww.apple.com\nwww.apple.com:443\n9443\n\n\n\n\n\n\n\n\n\n" |
       script -q -e -c '\''bash "$BATS_TEST_DIRNAME/wizard-fixture.sh"'\'' /dev/null
   '
   [ "$status" -eq 0 ]

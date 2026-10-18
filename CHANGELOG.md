@@ -1,5 +1,13 @@
 # Changelog
 
+## Interactive CLI
+
+- Add a welcome screen showing the repository name, installer version and author.
+- Open a numbered action menu when launched without arguments in a terminal.
+- Review loaded installation defaults before proceeding, with customization,
+  numbered policy choices, cancellation and correction of invalid settings.
+- Preserve direct commands and noninteractive automation behavior.
+
 ## 2.0.0 — security and operational overhaul
 
 - Replace destructive host firewall management with an owned nftables table or

@@ -20,7 +20,7 @@ data() {
 EOF
   cat "$project/lib/data.py"
   printf '\nXRAY_BOOTSTRAP_PYTHON\n}\n'
-  for module in common config transaction xray systemd reality firewall ssh host backup clients diagnostics main; do
+  for module in common config ui transaction xray systemd reality firewall ssh host backup clients diagnostics main; do
     cat "$project/lib/$module.sh"
     printf '\n'
   done

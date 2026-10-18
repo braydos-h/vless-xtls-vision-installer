@@ -109,15 +109,28 @@ prompt_value() {
 }
 wizard() {
   [[ -t 0 && $NON_INTERACTIVE == false ]] || die 'Use install --auto --non-interactive with a profile on noninteractive hosts.'
-  local k value
-  log 'Host firewall, SSH and OS policies are unchanged by default. Edit a profile for optional host hardening.'
-  for k in SERVER_NAME DEST_ENDPOINT LISTEN_PORT FALLBACK_PORT PUBLIC_IP PROFILE_NAME FIREWALL_STYLE XRAY_UPDATE_POLICY BLOCK_PRIVATE_OUTBOUND CAMOUFLAGE_ENABLED; do
-    if [[ $k == PUBLIC_IP ]]; then log 'PUBLIC_IP is the server address used by clients; leave blank to detect it automatically.'; fi
-    value=$(prompt_value "$k" "$(profile_opt "$k")")
-    set_profile "$k" "$value"
+  local action default=continue
+  while :; do
+    wizard_summary
+    action=$(prompt_choice 'Next step' "$default" \
+      'continue|Install with the settings above' 'edit|Customize settings' 'cancel|Cancel')
+    case "$action" in
+      continue)
+        if data profile "$PROFILE" >"$WORK/validated" 2>"$WORK/wizard-errors"; then
+          mv "$WORK/validated" "$PROFILE"
+          return 0
+        fi
+        log 'Please correct these settings before installing:'
+        cat "$WORK/wizard-errors" >&2
+        default=edit
+        ;;
+      edit)
+        wizard_customize
+        default='continue'
+        ;;
+      cancel) die 'Installation cancelled.' ;;
+    esac
   done
-  data profile "$PROFILE" >"$WORK/validated"
-  mv "$WORK/validated" "$PROFILE"
 }
 make_identity() {
   local key_output private public count

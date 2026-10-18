@@ -6,7 +6,7 @@ ENTRY_PATH=${BASH_SOURCE[0]}
 PROJECT_DIR=$(cd -- "$(dirname -- "$ENTRY_PATH")/.." && pwd)
 STANDALONE=false
 # shellcheck source-path=SCRIPTDIR/../lib
-for module in common config transaction xray systemd reality firewall ssh host backup clients diagnostics main; do
+for module in common config ui transaction xray systemd reality firewall ssh host backup clients diagnostics main; do
   # shellcheck disable=SC1090
   source "$PROJECT_DIR/lib/$module.sh"
 done

@@ -16,6 +16,21 @@ This project is designed to be practical for both first-time setup and long-term
 ```bash
 git clone https://github.com/braydos-h/vless-xtls-vision-installer.git
 cd vless-xtls-vision-installer
+sudo bash xray_reality_bootstrap.sh
+```
+
+Running without arguments opens a welcome screen with the repository name,
+installer version and author, followed by a numbered menu. Choose install,
+preflight, status, clients, backups, help or exit. Press Enter to select the
+displayed default. Installation shows the current settings first: keep them with
+Enter, choose **Customize settings**, or cancel. Customization includes numbered
+firewall, update and yes/no choices, followed by a settings review. Use `-` to
+clear an optional alternate port or client-facing server address. Ctrl+C cancels.
+Existing profiles and saved settings supply the defaults on subsequent installs.
+
+You can also run commands directly, including `preflight` and `install`:
+
+```bash
 sudo bash xray_reality_bootstrap.sh preflight
 sudo bash xray_reality_bootstrap.sh install
 ```
@@ -317,7 +332,7 @@ No. Deployment quality improves safety and recoverability, but there is no unive
 No. Application-level routing applies to proxy traffic. Host-level isolation requires separate controls (for example, optional UID-scoped nftables egress) and still has limitations.
 
 **Can I rely on testing claims as production guarantees?**  
-No. Current checks pass 20 Python tests + 79 Bats tests, including the blank-address wizard-to-export regression. The earlier Ubuntu 26.04 repair passed real Xray `v26.3.27`/`v26.10.10` protocol tests, and actual Ubuntu 26.04 installation, repeat-install identity preservation, systemd/port 443 health and failed-activation rollback in a disposable WSL2 guest. Prior Debian 12/Ubuntu 24.04 disposable VM results are recorded separately. The full five-OS VM matrix, Debian 13/Ubuntu 22.04 runtime integration, ARM runtime integration and hosted CI were not run during this repair; no production VPS was modified. See [validation scope](docs/TESTING.md).
+No. Current checks pass 20 Python tests + 90 Bats tests, including interactive CLI navigation, defaults, customization, cancellation, invalid-setting correction and the blank-address wizard-to-export regression. The earlier Ubuntu 26.04 repair passed real Xray `v26.3.27`/`v26.10.10` protocol tests, and actual Ubuntu 26.04 installation, repeat-install identity preservation, systemd/port 443 health and failed-activation rollback in a disposable WSL2 guest. Prior Debian 12/Ubuntu 24.04 disposable VM results are recorded separately. The full five-OS VM matrix, Debian 13/Ubuntu 22.04 runtime integration, ARM runtime integration and hosted CI were not run during this repair; no production VPS was modified. See [validation scope](docs/TESTING.md).
 
 ## Technical documentation
 

@@ -17,7 +17,7 @@ setup_preflight() {
   }
   uname() { printf 'x86_64\n'; }
   cat() {
-    if [[ $1 == /proc/1/comm ]]; then printf 'systemd\n'; else command cat "$@"; fi
+    if [[ ${1:-} == /proc/1/comm ]]; then printf 'systemd\n'; else command cat "$@"; fi
   }
   df() { printf 'Filesystem blocks used available\nmock 20000000 1000000 19000000\n'; }
   systemctl() { return 1; }

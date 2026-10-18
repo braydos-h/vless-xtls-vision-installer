@@ -3,6 +3,7 @@
 usage() {
   cat <<'EOF'
 Usage: xray_reality_bootstrap.sh COMMAND [CLIENT_NAME | BACKUP_ID] [OPTIONS]
+Run without arguments in a terminal for the welcome screen and interactive menu.
 Commands:
   install update repair preflight status diagnose reprint uninstall
   add-client remove-client list-clients show-client rotate-client export-client
@@ -64,7 +65,7 @@ parse_args() {
         exit 0
         ;;
       -V | --version)
-        printf 'xray-reality-bootstrap v2.0.0\n'
+        printf 'xray-reality-bootstrap v%s\n' "$(installer_version)"
         exit 0
         ;;
       --)
@@ -192,6 +193,14 @@ main() {
   parse_args "$@"
   umask 077
   setup_traps
+  if [[ -t 0 && $NON_INTERACTIVE == false && $AUTO == false && $DRY_RUN == false ]]; then
+    if (($# == 0)); then
+      welcome_screen
+      startup_menu
+    elif [[ $MODE == install ]]; then
+      welcome_screen
+    fi
+  fi
   if [[ $MODE == install && $DRY_RUN == false && $AUTO == false ]] && [[ ! -t 0 || $NON_INTERACTIVE == true ]]; then
     die 'Noninteractive install requires --auto; no packages or host policies were changed.'
   fi
