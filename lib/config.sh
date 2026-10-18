@@ -48,6 +48,54 @@ load_profile() {
     jq --arg count "$SID_COUNT" '.SHORT_ID_COUNT=$count' "$PROFILE" >"$WORK/profile-next" || return $?
     data profile "$WORK/profile-next" >"$PROFILE" || return $?
   fi
+  if [[ -n ${PUBLIC_IP_CLI:-} ]]; then
+    set_profile PUBLIC_IP "$PUBLIC_IP_CLI" || return $?
+    data profile "$PROFILE" >"$WORK/profile-validated" || return $?
+    mv "$WORK/profile-validated" "$PROFILE" || return $?
+  fi
+}
+
+detect_public_ip() {
+  local listen=$1 response address family url ssh_client ssh_client_port ssh_server ssh_server_port
+  local families=(4 6)
+  # Prefer a specifically bound public address, then the ingress address of SSH.
+  if address=$(data public-ip "$listen" 2>/dev/null); then
+    printf '%s\n' "$address"
+    return 0
+  fi
+  if [[ $listen != *:* ]]; then families=(4); elif [[ $listen != :: ]]; then families=(6); fi
+  if [[ -n ${SSH_CONNECTION:-} ]]; then
+    read -r ssh_client ssh_client_port ssh_server ssh_server_port <<<"$SSH_CONNECTION"
+    if address=$(data public-ip "$ssh_server" 2>/dev/null); then
+      if [[ $listen == :: || ($listen == *:* && $address == *:*) || ($listen != *:* && $address != *:*) ]]; then
+        printf '%s\n' "$address"
+        return 0
+      fi
+    fi
+  fi
+  command -v curl >/dev/null || return 1
+  for family in "${families[@]}"; do
+    for url in https://api.ipify.org https://icanhazip.com; do
+      # Bypass proxies: their egress address would produce unusable client links.
+      if response=$(curl "-$family" --proto '=https' --noproxy '*' -fsS --connect-timeout 3 --max-time 5 --max-filesize 128 "$url" 2>/dev/null) &&
+        address=$(data public-ip "$response" 2>/dev/null); then
+        printf '%s\n' "$address"
+        return 0
+      fi
+    done
+  done
+  return 1
+}
+resolve_profile_public_ip() {
+  local address
+  [[ -z $(profile_opt PUBLIC_IP) ]] || return 0
+  if address=$(detect_public_ip "$(profile_opt LISTEN_ADDRESS)"); then
+    set_profile PUBLIC_IP "$address" || return $?
+    log "Client server address detected: $address. Use --public-ip to override it (required for custom NAT/port-forwarding)."
+  else
+    log '[FAIL] Cannot determine the server public IP or hostname for client exports. Rerun install with --public-ip YOUR_SERVER_IP_OR_HOSTNAME; no deployment was activated.'
+    return 2
+  fi
 }
 
 set_profile() {
@@ -64,6 +112,7 @@ wizard() {
   local k value
   log 'Host firewall, SSH and OS policies are unchanged by default. Edit a profile for optional host hardening.'
   for k in SERVER_NAME DEST_ENDPOINT LISTEN_PORT FALLBACK_PORT PUBLIC_IP PROFILE_NAME FIREWALL_STYLE XRAY_UPDATE_POLICY BLOCK_PRIVATE_OUTBOUND CAMOUFLAGE_ENABLED; do
+    if [[ $k == PUBLIC_IP ]]; then log 'PUBLIC_IP is the server address used by clients; leave blank to detect it automatically.'; fi
     value=$(prompt_value "$k" "$(profile_opt "$k")")
     set_profile "$k" "$value"
   done

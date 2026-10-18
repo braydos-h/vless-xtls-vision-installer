@@ -97,6 +97,16 @@ def host(value):
         return domain(value)
 
 
+def public_ip(value):
+    """Accept only a routable literal from discovery, never an HTML response."""
+    if not isinstance(value, str) or '%' in value:
+        fail('public address discovery requires an IP literal')
+    address = ipaddress.ip_address(value.strip())
+    if not address.is_global or address.is_multicast:
+        fail('public address discovery returned a non-public IP')
+    return str(address)
+
+
 def endpoint(value):
     if not isinstance(value, str):
         fail('endpoint must be a string')
@@ -535,19 +545,22 @@ def main():
     command, a = sys.argv[1], sys.argv[2:]
     counts = {'defaults':0, 'profile':1, 'profile-legacy':3, 'profile-deployed':2, 'state':1, 'migrate':2, 'config':1,
               'mutate':4, 'export':3, 'extract':2, 'validate':2, 'cidrs':1,
-              'egress-check':2, 'key-der':2, 'public-key':1}
+              'egress-check':2, 'key-der':2, 'public-key':1, 'public-ip':1}
     if command not in counts or len(a) != counts[command]:
         fail('invalid data command or argument count')
     if command == 'defaults':
         emit(profile({}))
     elif command == 'profile':
         emit(profile(load(a[0])))
+    elif command == 'public-ip':
+        print(public_ip(a[0]))
     elif command in ('profile-legacy', 'profile-deployed'):
         raw = load(a[0])
         if not isinstance(raw, dict):
             fail('profile must be a JSON object')
         deployed = legacy(a[1], a[2]) if command == 'profile-legacy' else state(load(a[1]))
         raw.setdefault('LISTEN_ADDRESS', deployed['options']['LISTEN_ADDRESS'])
+        raw.setdefault('PUBLIC_IP', deployed['options']['PUBLIC_IP'])
         emit(profile(raw))
     elif command == 'state':
         emit(state(load(a[0])))

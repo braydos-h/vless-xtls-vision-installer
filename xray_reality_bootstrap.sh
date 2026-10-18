@@ -107,6 +107,16 @@ def host(value):
         return domain(value)
 
 
+def public_ip(value):
+    """Accept only a routable literal from discovery, never an HTML response."""
+    if not isinstance(value, str) or '%' in value:
+        fail('public address discovery requires an IP literal')
+    address = ipaddress.ip_address(value.strip())
+    if not address.is_global or address.is_multicast:
+        fail('public address discovery returned a non-public IP')
+    return str(address)
+
+
 def endpoint(value):
     if not isinstance(value, str):
         fail('endpoint must be a string')
@@ -545,19 +555,22 @@ def main():
     command, a = sys.argv[1], sys.argv[2:]
     counts = {'defaults':0, 'profile':1, 'profile-legacy':3, 'profile-deployed':2, 'state':1, 'migrate':2, 'config':1,
               'mutate':4, 'export':3, 'extract':2, 'validate':2, 'cidrs':1,
-              'egress-check':2, 'key-der':2, 'public-key':1}
+              'egress-check':2, 'key-der':2, 'public-key':1, 'public-ip':1}
     if command not in counts or len(a) != counts[command]:
         fail('invalid data command or argument count')
     if command == 'defaults':
         emit(profile({}))
     elif command == 'profile':
         emit(profile(load(a[0])))
+    elif command == 'public-ip':
+        print(public_ip(a[0]))
     elif command in ('profile-legacy', 'profile-deployed'):
         raw = load(a[0])
         if not isinstance(raw, dict):
             fail('profile must be a JSON object')
         deployed = legacy(a[1], a[2]) if command == 'profile-legacy' else state(load(a[1]))
         raw.setdefault('LISTEN_ADDRESS', deployed['options']['LISTEN_ADDRESS'])
+        raw.setdefault('PUBLIC_IP', deployed['options']['PUBLIC_IP'])
         emit(profile(raw))
     elif command == 'state':
         emit(state(load(a[0])))
@@ -637,6 +650,7 @@ init_paths() {
   CLIENT_TEST_DIR=''
   HOST_PENDING=false
   FIREWALL_APPLIED=false
+  ERROR_REPORTED=false
   MANAGED_FILES=("$BIN" "$UNIT" "$NFT_FILE" "$NFT_UNIT" "$NGINX_FILE" "$F2B_FILE" "$APT_FILE" "$UPDATE_UNIT" "$UPDATE_TIMER" "$SSH_DROPIN")
 }
 log() {
@@ -741,6 +755,10 @@ setup_traps() {
 }
 report_error() {
   local rc=$1 line=$2 operation=$3
+  # Command substitutions inherit ERR. Report once in the parent shell, where
+  # the failure status propagates, instead of once per unwinding function.
+  if ((BASH_SUBSHELL > 0)) || [[ ${ERROR_REPORTED:-false} == true ]]; then return 0; fi
+  ERROR_REPORTED=true
   log "ERROR: $MODE: $operation failed at line $line (exit $rc)."
   if [[ $TX_ACTIVE == true ]]; then log 'Deployment transaction is active; cleanup will restore the previous deployment.'; fi
   # ERR retains the original command status. Returning nonzero from the trap
@@ -835,6 +853,54 @@ load_profile() {
     jq --arg count "$SID_COUNT" '.SHORT_ID_COUNT=$count' "$PROFILE" >"$WORK/profile-next" || return $?
     data profile "$WORK/profile-next" >"$PROFILE" || return $?
   fi
+  if [[ -n ${PUBLIC_IP_CLI:-} ]]; then
+    set_profile PUBLIC_IP "$PUBLIC_IP_CLI" || return $?
+    data profile "$PROFILE" >"$WORK/profile-validated" || return $?
+    mv "$WORK/profile-validated" "$PROFILE" || return $?
+  fi
+}
+
+detect_public_ip() {
+  local listen=$1 response address family url ssh_client ssh_client_port ssh_server ssh_server_port
+  local families=(4 6)
+  # Prefer a specifically bound public address, then the ingress address of SSH.
+  if address=$(data public-ip "$listen" 2>/dev/null); then
+    printf '%s\n' "$address"
+    return 0
+  fi
+  if [[ $listen != *:* ]]; then families=(4); elif [[ $listen != :: ]]; then families=(6); fi
+  if [[ -n ${SSH_CONNECTION:-} ]]; then
+    read -r ssh_client ssh_client_port ssh_server ssh_server_port <<<"$SSH_CONNECTION"
+    if address=$(data public-ip "$ssh_server" 2>/dev/null); then
+      if [[ $listen == :: || ($listen == *:* && $address == *:*) || ($listen != *:* && $address != *:*) ]]; then
+        printf '%s\n' "$address"
+        return 0
+      fi
+    fi
+  fi
+  command -v curl >/dev/null || return 1
+  for family in "${families[@]}"; do
+    for url in https://api.ipify.org https://icanhazip.com; do
+      # Bypass proxies: their egress address would produce unusable client links.
+      if response=$(curl "-$family" --proto '=https' --noproxy '*' -fsS --connect-timeout 3 --max-time 5 --max-filesize 128 "$url" 2>/dev/null) &&
+        address=$(data public-ip "$response" 2>/dev/null); then
+        printf '%s\n' "$address"
+        return 0
+      fi
+    done
+  done
+  return 1
+}
+resolve_profile_public_ip() {
+  local address
+  [[ -z $(profile_opt PUBLIC_IP) ]] || return 0
+  if address=$(detect_public_ip "$(profile_opt LISTEN_ADDRESS)"); then
+    set_profile PUBLIC_IP "$address" || return $?
+    log "Client server address detected: $address. Use --public-ip to override it (required for custom NAT/port-forwarding)."
+  else
+    log '[FAIL] Cannot determine the server public IP or hostname for client exports. Rerun install with --public-ip YOUR_SERVER_IP_OR_HOSTNAME; no deployment was activated.'
+    return 2
+  fi
 }
 
 set_profile() {
@@ -851,6 +917,7 @@ wizard() {
   local k value
   log 'Host firewall, SSH and OS policies are unchanged by default. Edit a profile for optional host hardening.'
   for k in SERVER_NAME DEST_ENDPOINT LISTEN_PORT FALLBACK_PORT PUBLIC_IP PROFILE_NAME FIREWALL_STYLE XRAY_UPDATE_POLICY BLOCK_PRIVATE_OUTBOUND CAMOUFLAGE_ENABLED; do
+    if [[ $k == PUBLIC_IP ]]; then log 'PUBLIC_IP is the server address used by clients; leave blank to detect it automatically.'; fi
     value=$(prompt_value "$k" "$(profile_opt "$k")")
     set_profile "$k" "$value"
   done
@@ -1934,20 +2001,41 @@ client_change_mode() {
   fi
   log 'Client change deployed. Existing sessions may disconnect because Xray was restarted.'
 }
+prepare_export_state() {
+  load_deployment || return $?
+  local address=${PUBLIC_IP_CLI:-$(opt PUBLIC_IP)}
+  if [[ -z $address ]]; then
+    if address=$(detect_public_ip "$(opt LISTEN_ADDRESS)"); then
+      log "Client server address detected: $address. Use --public-ip to override it for custom NAT/port-forwarding."
+    else
+      log 'ERROR: Cannot determine the server public IP or hostname. Rerun export-client NAME --public-ip YOUR_SERVER_IP_OR_HOSTNAME. Existing deployment and credentials were preserved.'
+      return 2
+    fi
+  fi
+  # Exports may override connection metadata without editing deployed state,
+  # rotating credentials, downloading Xray or restarting the service.
+  jq --arg address "$address" '.options.PUBLIC_IP=$address' "$DESIRED" >"$WORK/export-options.json" || return $?
+  data state "$WORK/export-options.json" >"$WORK/export-state.json" || return $?
+  DESIRED=$WORK/export-state.json
+}
 export_client_mode() {
-  load_deployment
+  prepare_export_state || return $?
   [[ ! -L $CLIENT_DIR ]] || die 'Unsafe export directory symlink.'
-  install -d -m 700 "$CLIENT_DIR"
-  local prefix uri
-  prefix=$(data export "$DESIRED" "$NAME" "$CLIENT_DIR")
+  install -d -m 700 "$CLIENT_DIR" || return $?
+  local prefix uri rc
+  if prefix=$(data export "$DESIRED" "$NAME" "$CLIENT_DIR"); then :; else
+    rc=$?
+    log 'ERROR: Client export failed; check the client name and server address above. No deployment changes were applied.'
+    return "$rc"
+  fi
   if command -v qrencode >/dev/null; then
     local label
     for label in primary fallback; do
       uri=$CLIENT_DIR/$prefix-$label.uri.txt
       if [[ -f $uri ]]; then
-        qrencode -t PNG -o "$CLIENT_DIR/$prefix-$label.uri.qr.png" <"$uri"
-        qrencode -t UTF8 <"$uri" >"$CLIENT_DIR/$prefix-$label.uri.qr.txt"
-        chmod 600 "$CLIENT_DIR/$prefix-$label.uri.qr.png" "$CLIENT_DIR/$prefix-$label.uri.qr.txt"
+        qrencode -t PNG -o "$CLIENT_DIR/$prefix-$label.uri.qr.png" <"$uri" || return $?
+        qrencode -t UTF8 <"$uri" >"$CLIENT_DIR/$prefix-$label.uri.qr.txt" || return $?
+        chmod 600 "$CLIENT_DIR/$prefix-$label.uri.qr.png" "$CLIENT_DIR/$prefix-$label.uri.qr.txt" || return $?
       fi
     done
   fi
@@ -1967,7 +2055,7 @@ list_clients_mode() {
   jq '[.clients[] | {name,credential:"redacted"}]' "$DESIRED"
 }
 test_client_mode() {
-  load_deployment
+  prepare_export_state
   [[ $TEST_URL == https://* ]] || die 'test-client requires --test-url https://HOST/PATH.'
   local prefix port config
   prefix=$(data export "$DESIRED" "$NAME" "$WORK/test-export")
@@ -2112,6 +2200,9 @@ preflight_mode() {
     return 1
   fi
   printf '[PASS] Valid profile\n'
+  if [[ -z $(profile_opt PUBLIC_IP) ]]; then
+    printf 'Client server address: automatic discovery during install/export; override with --public-ip YOUR_SERVER_IP_OR_HOSTNAME.\n'
+  else printf '[PASS] Client server address: %s\n' "$(profile_opt PUBLIC_IP)"; fi
   if [[ $(profile_opt LISTEN_ADDRESS) == *:* && $ipv6 == false ]]; then
     log '[FAIL] IPv6 unavailable for the selected listener; enable IPv6 or set LISTEN_ADDRESS to 0.0.0.0.'
     failure=true
@@ -2258,6 +2349,7 @@ Options:
   --auto --non-interactive --profile-json PATH --dry-run --network-check --allow-prerelease
   --xray-version vN.N.N --shortid-count 1..16 --migration-window SECONDS
   --key-login-confirmed --yes --json --transaction-id TOKEN --test-url HTTPS_URL
+  --public-ip SERVER_IP_OR_HOSTNAME (install/preflight or client export override)
 Install defaults: no firewall/SSH/OS changes, manual Xray updates, private routing block.
 Use preflight first. Firewall and SSH transitions require confirm-host in a new
 SSH session within 180 seconds. Credentials are printed only by show-client.
@@ -2266,7 +2358,7 @@ EOF
 parse_args() {
   ALLOW_PRERELEASE_CLI=false
   MODE=install AUTO=false NON_INTERACTIVE=false DRY_RUN=false PROFILE_PATH='' PIN='' SID_COUNT=''
-  NAME='' WINDOW=604800 KEY_CONFIRMED=false YES=false NETWORK_CHECK=false TRANSACTION_ID='' TEST_URL=''
+  NAME='' WINDOW=604800 KEY_CONFIRMED=false YES=false NETWORK_CHECK=false TRANSACTION_ID='' TEST_URL='' PUBLIC_IP_CLI=''
   local positional=false
   if (($#)) && [[ $1 != -* ]]; then
     MODE=$1
@@ -2278,7 +2370,7 @@ parse_args() {
   esac
   while (($#)); do
     case "$1" in
-      --profile-json=* | --xray-version=* | --shortid-count=* | --migration-window=* | --transaction-id=* | --test-url=*)
+      --profile-json=* | --xray-version=* | --shortid-count=* | --migration-window=* | --transaction-id=* | --test-url=* | --public-ip=*)
         set -- "${1%%=*}" "${1#*=}" "${@:2}"
         ;;
     esac
@@ -2291,7 +2383,7 @@ parse_args() {
       --key-login-confirmed) KEY_CONFIRMED=true ;;
       --yes) YES=true ;;
       --json) : ;; # Status/diagnose are always structured and redacted.
-      --profile-json | --xray-version | --shortid-count | --migration-window | --transaction-id | --test-url)
+      --profile-json | --xray-version | --shortid-count | --migration-window | --transaction-id | --test-url | --public-ip)
         (($# >= 2)) || die "Missing value for $1"
         case "$1" in
           --profile-json) PROFILE_PATH=$2 ;;
@@ -2300,6 +2392,7 @@ parse_args() {
           --migration-window) WINDOW=$2 ;;
           --transaction-id) TRANSACTION_ID=$2 ;;
           --test-url) TEST_URL=$2 ;;
+          --public-ip) PUBLIC_IP_CLI=$2 ;;
         esac
         shift
         ;;
@@ -2346,6 +2439,7 @@ install_mode() {
   # A conditional call is intentional: expected validation failures must not
   # trigger ERR/recovery. Preflight checks explicitly propagate helper errors.
   if preflight_mode; then :; else exit $?; fi
+  if resolve_profile_public_ip; then :; else exit $?; fi
   DESIRED=$WORK/state.json
   if [[ -f $STATE_FILE || -f $XRAY_DIR/bootstrap-state.env ]]; then
     load_deployment
@@ -2487,7 +2581,7 @@ main() {
     repair) repair_mode ;;
     reprint) reprint_mode ;;
     add-client | remove-client | rotate-client | rotate-shortid | finalize-shortid) client_change_mode ;;
-    show-client | export-client) export_client_mode ;;
+    show-client | export-client) if export_client_mode; then :; else exit $?; fi ;;
     backup) backup_mode ;;
     restore) restore_mode ;;
     harden-ssh) harden_ssh_mode ;;

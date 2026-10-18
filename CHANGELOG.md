@@ -60,3 +60,11 @@
 - Handle expected validation results without the deployment ERR/recovery message.
 - Keep wizard selections, verify managed listener ownership, and retain DNS/TLS/download/package/systemd error context and codes.
 - Add mocked preflight/interactive regressions and Ubuntu 26.04 to the optional VM matrix.
+
+## Client export address repair
+
+- Detect and save the client-facing server address when installation leaves `PUBLIC_IP` blank.
+- Recover exports from older blank-address installations without changing deployed state or credentials.
+- Add `--public-ip` overrides for install/preflight and client export operations; preserve saved explicit addresses across profile reloads.
+- Reject private/malformed discovery responses, bound network timeouts, and collapse nested ERR messages to one report.
+- Test the complete interactive blank-address install-to-export flow with mocked deployment operations.

@@ -12,6 +12,7 @@ Options:
   --auto --non-interactive --profile-json PATH --dry-run --network-check --allow-prerelease
   --xray-version vN.N.N --shortid-count 1..16 --migration-window SECONDS
   --key-login-confirmed --yes --json --transaction-id TOKEN --test-url HTTPS_URL
+  --public-ip SERVER_IP_OR_HOSTNAME (install/preflight or client export override)
 Install defaults: no firewall/SSH/OS changes, manual Xray updates, private routing block.
 Use preflight first. Firewall and SSH transitions require confirm-host in a new
 SSH session within 180 seconds. Credentials are printed only by show-client.
@@ -20,7 +21,7 @@ EOF
 parse_args() {
   ALLOW_PRERELEASE_CLI=false
   MODE=install AUTO=false NON_INTERACTIVE=false DRY_RUN=false PROFILE_PATH='' PIN='' SID_COUNT=''
-  NAME='' WINDOW=604800 KEY_CONFIRMED=false YES=false NETWORK_CHECK=false TRANSACTION_ID='' TEST_URL=''
+  NAME='' WINDOW=604800 KEY_CONFIRMED=false YES=false NETWORK_CHECK=false TRANSACTION_ID='' TEST_URL='' PUBLIC_IP_CLI=''
   local positional=false
   if (($#)) && [[ $1 != -* ]]; then
     MODE=$1
@@ -32,7 +33,7 @@ parse_args() {
   esac
   while (($#)); do
     case "$1" in
-      --profile-json=* | --xray-version=* | --shortid-count=* | --migration-window=* | --transaction-id=* | --test-url=*)
+      --profile-json=* | --xray-version=* | --shortid-count=* | --migration-window=* | --transaction-id=* | --test-url=* | --public-ip=*)
         set -- "${1%%=*}" "${1#*=}" "${@:2}"
         ;;
     esac
@@ -45,7 +46,7 @@ parse_args() {
       --key-login-confirmed) KEY_CONFIRMED=true ;;
       --yes) YES=true ;;
       --json) : ;; # Status/diagnose are always structured and redacted.
-      --profile-json | --xray-version | --shortid-count | --migration-window | --transaction-id | --test-url)
+      --profile-json | --xray-version | --shortid-count | --migration-window | --transaction-id | --test-url | --public-ip)
         (($# >= 2)) || die "Missing value for $1"
         case "$1" in
           --profile-json) PROFILE_PATH=$2 ;;
@@ -54,6 +55,7 @@ parse_args() {
           --migration-window) WINDOW=$2 ;;
           --transaction-id) TRANSACTION_ID=$2 ;;
           --test-url) TEST_URL=$2 ;;
+          --public-ip) PUBLIC_IP_CLI=$2 ;;
         esac
         shift
         ;;
@@ -100,6 +102,7 @@ install_mode() {
   # A conditional call is intentional: expected validation failures must not
   # trigger ERR/recovery. Preflight checks explicitly propagate helper errors.
   if preflight_mode; then :; else exit $?; fi
+  if resolve_profile_public_ip; then :; else exit $?; fi
   DESIRED=$WORK/state.json
   if [[ -f $STATE_FILE || -f $XRAY_DIR/bootstrap-state.env ]]; then
     load_deployment
@@ -241,7 +244,7 @@ main() {
     repair) repair_mode ;;
     reprint) reprint_mode ;;
     add-client | remove-client | rotate-client | rotate-shortid | finalize-shortid) client_change_mode ;;
-    show-client | export-client) export_client_mode ;;
+    show-client | export-client) if export_client_mode; then :; else exit $?; fi ;;
     backup) backup_mode ;;
     restore) restore_mode ;;
     harden-ssh) harden_ssh_mode ;;

@@ -155,9 +155,12 @@ If IPv6 is unavailable, use `LISTEN_ADDRESS=0.0.0.0` in your profile.
 sudo /usr/local/sbin/xray-reality-bootstrap diagnose
 sudo /usr/local/sbin/xray-reality-bootstrap export-client reality-main
 sudo /usr/local/sbin/xray-reality-bootstrap show-client reality-main
+
+# Override the client-facing address without reinstalling or restarting Xray:
+sudo /usr/local/sbin/xray-reality-bootstrap export-client reality-main --public-ip proxy.example.com
 ```
 
-Exports are generated under `/root/xray-client-configs` (directory mode `700`, file mode `600`). `PUBLIC_IP` must be explicitly configured for usable exports. `qrencode` is optional and must be installed separately to generate QR files.
+Exports are generated under `/root/xray-client-configs` (directory mode `700`, file mode `600`). If `PUBLIC_IP` is blank, install detects and saves the server address before deployment. Export also detects an address for older installations with an empty saved value. Discovery prefers a public bound/SSH ingress address, then tries bounded HTTPS IPv4/IPv6 checks. For custom NAT, port forwarding, or a DNS name, configure `PUBLIC_IP` or pass `--public-ip YOUR_SERVER_IP_OR_HOSTNAME`. Explicit saved addresses are retained. If the installed helper predates `--public-ip`, run `sudo bash ./xray_reality_bootstrap.sh export-client reality-main --public-ip YOUR_SERVER_IP_OR_HOSTNAME` from the updated checkout; exporting does not require reinstalling Xray. `qrencode` is optional and must be installed separately to generate QR files.
 
 ## Client management
 
@@ -298,14 +301,14 @@ sudo /usr/local/sbin/xray-reality-bootstrap test-client reality-main \
 |---|---|
 | Client timeout | Verify host + cloud firewall, public endpoint, server clock, and REALITY target/SNI settings |
 | Probe/handshake failure | Confirm target supports TLS 1.3 + X25519 + h2 and certificate hostname match |
-| Exports unusable | Set `PUBLIC_IP` explicitly, then re-run export/reprint |
+| Exports unusable | Run `export-client NAME --public-ip YOUR_SERVER_IP_OR_HOSTNAME`; no restart or credential change is needed |
 | Firewall transition stuck | Use fresh-session `confirm-host` or run `recover` after interrupted transition |
 | Private egress breaks name resolution | Re-check DNS resolver reachability and whether OS-level egress mode is required |
 
 ## FAQ
 
 **Do I need to buy a domain/certificate for the proxy server?**  
-No. REALITY SNI points to the TLS target used for camouflage probing. Clients can use your server public IP when `PUBLIC_IP` is set appropriately.
+No. REALITY SNI points to the TLS target used for camouflage probing. Clients can use your server public IP using the saved/detected server address or an explicit `--public-ip` override.
 
 **Does this provide guaranteed censorship bypass or anonymity?**  
 No. Deployment quality improves safety and recoverability, but there is no universal bypass/anonymity guarantee.
@@ -314,7 +317,7 @@ No. Deployment quality improves safety and recoverability, but there is no unive
 No. Application-level routing applies to proxy traffic. Host-level isolation requires separate controls (for example, optional UID-scoped nftables egress) and still has limitations.
 
 **Can I rely on testing claims as production guarantees?**  
-No. The Ubuntu 26.04 repair passed 18 Python tests + 67 Bats tests, real Xray `v26.3.27`/`v26.10.10` protocol tests, and actual Ubuntu 26.04 installation, repeat-install identity preservation, systemd/port 443 health and failed-activation rollback in a disposable WSL2 guest. Prior Debian 12/Ubuntu 24.04 disposable VM results are recorded separately. The full five-OS VM matrix, Debian 13/Ubuntu 22.04 runtime integration, ARM runtime integration and hosted CI were not run during this repair; no production VPS was modified. See [validation scope](docs/TESTING.md).
+No. Current checks pass 20 Python tests + 79 Bats tests, including the blank-address wizard-to-export regression. The earlier Ubuntu 26.04 repair passed real Xray `v26.3.27`/`v26.10.10` protocol tests, and actual Ubuntu 26.04 installation, repeat-install identity preservation, systemd/port 443 health and failed-activation rollback in a disposable WSL2 guest. Prior Debian 12/Ubuntu 24.04 disposable VM results are recorded separately. The full five-OS VM matrix, Debian 13/Ubuntu 22.04 runtime integration, ARM runtime integration and hosted CI were not run during this repair; no production VPS was modified. See [validation scope](docs/TESTING.md).
 
 ## Technical documentation
 

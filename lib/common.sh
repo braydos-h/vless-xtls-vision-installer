@@ -29,6 +29,7 @@ init_paths() {
   CLIENT_TEST_DIR=''
   HOST_PENDING=false
   FIREWALL_APPLIED=false
+  ERROR_REPORTED=false
   MANAGED_FILES=("$BIN" "$UNIT" "$NFT_FILE" "$NFT_UNIT" "$NGINX_FILE" "$F2B_FILE" "$APT_FILE" "$UPDATE_UNIT" "$UPDATE_TIMER" "$SSH_DROPIN")
 }
 log() {
@@ -133,6 +134,10 @@ setup_traps() {
 }
 report_error() {
   local rc=$1 line=$2 operation=$3
+  # Command substitutions inherit ERR. Report once in the parent shell, where
+  # the failure status propagates, instead of once per unwinding function.
+  if ((BASH_SUBSHELL > 0)) || [[ ${ERROR_REPORTED:-false} == true ]]; then return 0; fi
+  ERROR_REPORTED=true
   log "ERROR: $MODE: $operation failed at line $line (exit $rc)."
   if [[ $TX_ACTIVE == true ]]; then log 'Deployment transaction is active; cleanup will restore the previous deployment.'; fi
   # ERR retains the original command status. Returning nonzero from the trap

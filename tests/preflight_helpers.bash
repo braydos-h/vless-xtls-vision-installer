@@ -30,4 +30,5 @@ setup_preflight() {
   dpkg-query() { return 99; }
   runuser() { return 99; }
   useradd() { return 99; }
+  detect_public_ip() { printf '8.8.8.8\n'; }
 }

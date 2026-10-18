@@ -20,20 +20,41 @@ client_change_mode() {
   fi
   log 'Client change deployed. Existing sessions may disconnect because Xray was restarted.'
 }
+prepare_export_state() {
+  load_deployment || return $?
+  local address=${PUBLIC_IP_CLI:-$(opt PUBLIC_IP)}
+  if [[ -z $address ]]; then
+    if address=$(detect_public_ip "$(opt LISTEN_ADDRESS)"); then
+      log "Client server address detected: $address. Use --public-ip to override it for custom NAT/port-forwarding."
+    else
+      log 'ERROR: Cannot determine the server public IP or hostname. Rerun export-client NAME --public-ip YOUR_SERVER_IP_OR_HOSTNAME. Existing deployment and credentials were preserved.'
+      return 2
+    fi
+  fi
+  # Exports may override connection metadata without editing deployed state,
+  # rotating credentials, downloading Xray or restarting the service.
+  jq --arg address "$address" '.options.PUBLIC_IP=$address' "$DESIRED" >"$WORK/export-options.json" || return $?
+  data state "$WORK/export-options.json" >"$WORK/export-state.json" || return $?
+  DESIRED=$WORK/export-state.json
+}
 export_client_mode() {
-  load_deployment
+  prepare_export_state || return $?
   [[ ! -L $CLIENT_DIR ]] || die 'Unsafe export directory symlink.'
-  install -d -m 700 "$CLIENT_DIR"
-  local prefix uri
-  prefix=$(data export "$DESIRED" "$NAME" "$CLIENT_DIR")
+  install -d -m 700 "$CLIENT_DIR" || return $?
+  local prefix uri rc
+  if prefix=$(data export "$DESIRED" "$NAME" "$CLIENT_DIR"); then :; else
+    rc=$?
+    log 'ERROR: Client export failed; check the client name and server address above. No deployment changes were applied.'
+    return "$rc"
+  fi
   if command -v qrencode >/dev/null; then
     local label
     for label in primary fallback; do
       uri=$CLIENT_DIR/$prefix-$label.uri.txt
       if [[ -f $uri ]]; then
-        qrencode -t PNG -o "$CLIENT_DIR/$prefix-$label.uri.qr.png" <"$uri"
-        qrencode -t UTF8 <"$uri" >"$CLIENT_DIR/$prefix-$label.uri.qr.txt"
-        chmod 600 "$CLIENT_DIR/$prefix-$label.uri.qr.png" "$CLIENT_DIR/$prefix-$label.uri.qr.txt"
+        qrencode -t PNG -o "$CLIENT_DIR/$prefix-$label.uri.qr.png" <"$uri" || return $?
+        qrencode -t UTF8 <"$uri" >"$CLIENT_DIR/$prefix-$label.uri.qr.txt" || return $?
+        chmod 600 "$CLIENT_DIR/$prefix-$label.uri.qr.png" "$CLIENT_DIR/$prefix-$label.uri.qr.txt" || return $?
       fi
     done
   fi
@@ -53,7 +74,7 @@ list_clients_mode() {
   jq '[.clients[] | {name,credential:"redacted"}]' "$DESIRED"
 }
 test_client_mode() {
-  load_deployment
+  prepare_export_state
   [[ $TEST_URL == https://* ]] || die 'test-client requires --test-url https://HOST/PATH.'
   local prefix port config
   prefix=$(data export "$DESIRED" "$NAME" "$WORK/test-export")

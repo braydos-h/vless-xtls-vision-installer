@@ -64,6 +64,26 @@ matrix runs only when explicitly dispatched. The automated suites currently use
 amd64. arm64/armv7 release selection is supported but full runtime integration
 must be checked on those architectures separately.
 
+## Blank PUBLIC_IP export repair (2026-10-18)
+
+The previous Ubuntu 26.04 validation stopped before exporting a client from a
+blank-address installation. That missed an unusable default workflow: the wizard
+accepted an empty `PUBLIC_IP`, installation completed, and export rejected it.
+
+New regressions run the actual wizard through a pseudo-terminal, mock deployment
+operations, save the resolved profile, and generate client files from the saved
+state. Tests also cover an older deployment with blank `PUBLIC_IP`, explicit DNS
+and IPv6 overrides, credential/state preservation, unknown clients, discovery
+failure, private/malformed discovery responses, bound/SSH address selection,
+HTTPS family fallback, saved-address retention and single ERR reporting.
+
+On Ubuntu 26.04 WSL, `bash scripts/check.sh` passed 20 Python tests and 79 Bats tests,
+Bash syntax, ShellCheck, shfmt, standalone build reproducibility and documentation checks.
+
+Run `bash scripts/check.sh` for the complete checks, or
+`bats tests/exports.bats` for the new workflow regression tests. Service mutation
+is mocked; these tests do not install Xray on the development WSL distribution.
+
 ## Ubuntu 26.04 repair validation (2026-10-18)
 
 - `bash scripts/check.sh`: 18 Python tests and 67 Bats tests passed in isolated

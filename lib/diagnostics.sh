@@ -111,6 +111,9 @@ preflight_mode() {
     return 1
   fi
   printf '[PASS] Valid profile\n'
+  if [[ -z $(profile_opt PUBLIC_IP) ]]; then
+    printf 'Client server address: automatic discovery during install/export; override with --public-ip YOUR_SERVER_IP_OR_HOSTNAME.\n'
+  else printf '[PASS] Client server address: %s\n' "$(profile_opt PUBLIC_IP)"; fi
   if [[ $(profile_opt LISTEN_ADDRESS) == *:* && $ipv6 == false ]]; then
     log '[FAIL] IPv6 unavailable for the selected listener; enable IPv6 or set LISTEN_ADDRESS to 0.0.0.0.'
     failure=true

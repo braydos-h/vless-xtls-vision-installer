@@ -53,6 +53,29 @@ class DataTests(unittest.TestCase):
         self.assertEqual(p['FIREWALL_STYLE'], 'none')
         self.assertEqual(p['XRAY_UPDATE_POLICY'], 'manual')
 
+    def test_public_ip_discovery_requires_a_global_literal(self):
+        self.assertEqual(d.public_ip(' 8.8.8.8\n'), '8.8.8.8')
+        self.assertEqual(d.public_ip('2606:4700:4700::1111'), '2606:4700:4700::1111')
+        for value in ['', 'proxy.example.com', '<html>error</html>', '127.0.0.1',
+                      '10.0.0.1', '169.254.169.254', '::', '::1', 'fc00::1',
+                      'ff02::1', 'fe80::1%eth0', '8.8.8.8\n1.1.1.1']:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                d.public_ip(value)
+
+    def test_profile_reload_preserves_the_deployed_client_address(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            saved = Path(tmp) / 'state.json'
+            requested = Path(tmp) / 'profile.json'
+            s = deployment(); s['options']['PUBLIC_IP'] = 'proxy.example.com'
+            saved.write_text(json.dumps(s))
+            for options, expected in [({}, 'proxy.example.com'),
+                                      ({'PUBLIC_IP': ''}, ''),
+                                      ({'PUBLIC_IP': 'other.example.com'}, 'other.example.com')]:
+                requested.write_text(json.dumps(options))
+                result = subprocess.check_output([sys.executable, str(Path(d.__file__)),
+                    'profile-deployed', str(requested), str(saved)], text=True)
+                self.assertEqual(json.loads(result)['PUBLIC_IP'], expected)
+
     def test_profile_strict(self):
         for value in [{'UNSUPPORTED': 'yes'}, {'LISTEN_PORT': 443}, {'FIREWALL_STYLE': 'iptables'}, {'SERVER_NAME': 'x; return 200;'}, {'LISTEN_PORT': '22'}, {'OS_PRIVATE_OUTBOUND': 'yes'}, {'SHORT_ID_COUNT': '999'}, {'profile_format': '9'}]:
             with self.subTest(value=value), self.assertRaises(ValueError):
