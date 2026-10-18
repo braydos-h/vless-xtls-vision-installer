@@ -1,9 +1,13 @@
 #  VLESS + REALITY + XTLS Vision Installer
 ### The Best Xray Installer Script You'll Find.
 
-## 🎥 Demo
-**VLESS + REALITY + XTLS Vision Full Setup in 78 Seconds**  
-https://youtu.be/hHB1BeUME8I
+
+##  Demo
+
+**VLESS + REALITY + XTLS Vision Full Setup in 78 Seconds**
+
+[![Watch the Demo](https://img.youtube.com/vi/hHB1BeUME8I/maxresdefault.jpg)](https://youtu.be/hHB1BeUME8I)
+
 
 [![License: GPL-3.0-only](https://img.shields.io/badge/License-GPL--3.0--only-blue.svg)](LICENSE)
 ![OS: Debian 12/13, Ubuntu 22.04/24.04/26.04](https://img.shields.io/badge/OS-Debian%2012%2F13%20%7C%20Ubuntu%2022.04%2F24.04%2F26.04-2f6feb)
