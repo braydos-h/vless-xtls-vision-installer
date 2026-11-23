@@ -1,6 +1,6 @@
 #  VLESS + REALITY + XTLS Vision Installer
 ### The Best Xray Installer Script You'll Find. 
-### No Domain, No Certificate, Just one .sh
+### One Command. No Domain. No Certificate. Complete Control. 
 
 ##  Quick Install
 
