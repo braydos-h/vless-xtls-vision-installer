@@ -5,15 +5,18 @@ usage() {
 Usage: xray_reality_bootstrap.sh COMMAND [CLIENT_NAME | BACKUP_ID] [OPTIONS]
 Run without arguments in a terminal for the welcome screen and interactive menu.
 Commands:
-  install update repair preflight status diagnose reprint uninstall
+  install update repair preflight status diagnose reprint uninstall presets
   add-client remove-client list-clients show-client rotate-client export-client
   rotate-shortid finalize-shortid backup restore list-backups recover
   harden-ssh restore-ssh confirm-host firewall-sync clear-firewall test-client
 Options:
-  --auto --non-interactive --profile-json PATH --dry-run --network-check --allow-prerelease
-  --xray-version vN.N.N --shortid-count 1..16 --migration-window SECONDS
-  --key-login-confirmed --yes --json --transaction-id TOKEN --test-url HTTPS_URL
+  --auto --non-interactive --profile-json PATH --preset NAME_OR_NUMBER --dry-run
+  --network-check --allow-prerelease --xray-version vN.N.N --shortid-count 1..16
+  --migration-window SECONDS --key-login-confirmed --yes --json
+  --transaction-id TOKEN --test-url HTTPS_URL
   --public-ip SERVER_IP_OR_HOSTNAME (install/preflight or client export override)
+Quick start: run 'presets' to list camouflage sites, then install with e.g.
+  --preset 1 (Cloudflare), --preset 2 (Apple), ... or --preset apple.
 Install defaults: no firewall/SSH/OS changes, manual Xray updates, private routing block.
 Use preflight first. Firewall and SSH transitions require confirm-host in a new
 SSH session within 180 seconds. Install prints the first client's VLESS link;
@@ -24,18 +27,19 @@ parse_args() {
   ALLOW_PRERELEASE_CLI=false
   MODE=install AUTO=false NON_INTERACTIVE=false DRY_RUN=false PROFILE_PATH='' PIN='' SID_COUNT=''
   NAME='' WINDOW=604800 KEY_CONFIRMED=false YES=false NETWORK_CHECK=false TRANSACTION_ID='' TEST_URL='' PUBLIC_IP_CLI=''
+  PRESET_CLI=''
   local positional=false
   if (($#)) && [[ $1 != -* ]]; then
     MODE=$1
     shift
   fi
   case "$MODE" in
-    install | update | repair | preflight | status | diagnose | reprint | uninstall | add-client | remove-client | list-clients | show-client | rotate-client | export-client | rotate-shortid | finalize-shortid | backup | restore | list-backups | recover | harden-ssh | restore-ssh | confirm-host | firewall-sync | clear-firewall | test-client) ;;
+    install | update | repair | preflight | status | diagnose | reprint | uninstall | presets | add-client | remove-client | list-clients | show-client | rotate-client | export-client | rotate-shortid | finalize-shortid | backup | restore | list-backups | recover | harden-ssh | restore-ssh | confirm-host | firewall-sync | clear-firewall | test-client) ;;
     *) die 'Unknown command. Use --help.' ;;
   esac
   while (($#)); do
     case "$1" in
-      --profile-json=* | --xray-version=* | --shortid-count=* | --migration-window=* | --transaction-id=* | --test-url=* | --public-ip=*)
+      --profile-json=* | --xray-version=* | --shortid-count=* | --migration-window=* | --transaction-id=* | --test-url=* | --public-ip=* | --preset=*)
         set -- "${1%%=*}" "${1#*=}" "${@:2}"
         ;;
     esac
@@ -48,7 +52,7 @@ parse_args() {
       --key-login-confirmed) KEY_CONFIRMED=true ;;
       --yes) YES=true ;;
       --json) : ;; # Status/diagnose are always structured and redacted.
-      --profile-json | --xray-version | --shortid-count | --migration-window | --transaction-id | --test-url | --public-ip)
+      --profile-json | --xray-version | --shortid-count | --migration-window | --transaction-id | --test-url | --public-ip | --preset)
         (($# >= 2)) || die "Missing value for $1"
         case "$1" in
           --profile-json) PROFILE_PATH=$2 ;;
@@ -58,6 +62,7 @@ parse_args() {
           --transaction-id) TRANSACTION_ID=$2 ;;
           --test-url) TEST_URL=$2 ;;
           --public-ip) PUBLIC_IP_CLI=$2 ;;
+          --preset) PRESET_CLI=$2 ;;
         esac
         shift
         ;;
@@ -135,7 +140,8 @@ finish_install() {
     # Leave durable journal for the separate confirmer/watchdog.
     TX_ACTIVE=false
   else commit_transaction; fi
-  log 'Xray deployed. Run diagnose to check the deployment.'
+  log 'Installation complete. Xray is running with the selected settings.'
+  log 'Run diagnose to check the deployment.'
   [[ $(opt SSH_HARDENING) != yes ]] || log 'SSH option requested: run harden-ssh separately after confirming proxy installation.'
   if [[ $MODE == install ]]; then
     local NAME MODE=show-client
@@ -144,6 +150,11 @@ finish_install() {
     if export_client_mode; then :; else
       log "Xray is deployed, but the client link could not be displayed. Run show-client \"$NAME\" to retry."
     fi
+    log 'Next steps:'
+    log "  Show this link again : sudo $HELPER show-client \"$NAME\""
+    log "  List clients         : sudo $HELPER list-clients"
+    log "  Check health         : sudo $HELPER diagnose"
+    log "  Client config files  : $CLIENT_DIR (root-only)"
   fi
 }
 repair_mode() {
@@ -230,6 +241,11 @@ main() {
   fi
   if [[ $MODE == preflight || ($MODE == install && $DRY_RUN == true) ]]; then
     if dry_run_mode; then exit 0; else exit $?; fi
+  fi
+  if [[ $MODE == presets ]]; then
+    require_tools jq python3
+    print_presets
+    exit 0
   fi
   require_tools jq python3 openssl
   if [[ $DRY_RUN == true ]]; then

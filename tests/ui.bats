@@ -37,20 +37,52 @@ setup() { setup_sandbox; }
   [[ "$output" == *'Cancelled (EOF).'* ]]
 }
 
+@test "numbered presets apply camouflage targets and reject unknown values" {
+  run print_presets
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'1) Cloudflare - www.cloudflare.com'* ]]
+  [[ "$output" == *'2) Apple - www.apple.com'* ]]
+  parse_args install --preset 2
+  load_profile
+  [ "$(profile_opt SERVER_NAME)" = www.apple.com ]
+  [ "$(profile_opt DEST_ENDPOINT)" = www.apple.com:443 ]
+  parse_args install --preset github
+  load_profile
+  [ "$(profile_opt SERVER_NAME)" = github.com ]
+  parse_args install --preset 99
+  run load_profile
+  [ "$status" -ne 0 ]
+  [[ "$output" == *'Unknown camouflage preset'* ]]
+}
+
+@test "preset default matches known targets and keeps custom ones distinct" {
+  parse_args install
+  load_profile
+  [ "$(reality_preset_default)" = cloudflare ]
+  set_profile SERVER_NAME camouflage.example.net
+  set_profile DEST_ENDPOINT camouflage.example.net:443
+  [ -z "$(reality_preset_default)" ]
+  set_profile SERVER_NAME github.com
+  set_profile DEST_ENDPOINT github.com:443
+  [ "$(reality_preset_default)" = github ]
+}
+
 @test "startup menu dispatches read-only choices and exits without mutations" {
   export BATS_TEST_DIRNAME BATS_TEST_TMPDIR
   local choice expected
-  for choice in 2 3 4 5 6 7; do
+  for choice in 2 3 4 5 6 7 9 10; do
     case "$choice" in
       2) expected='MENU PREFLIGHT' ;;
       3) expected='{"menu":"status"}' ;;
-      4) expected='MENU CLIENTS' ;;
-      5) expected='MENU BACKUPS' ;;
-      6) expected='Usage:' ;;
-      7) expected='Goodbye.' ;;
+      4) expected='{"menu":"diagnose"}' ;;
+      5) expected='MENU SHOW reality-main' ;;
+      6) expected='MENU CLIENTS' ;;
+      7) expected='MENU BACKUPS' ;;
+      9) expected='Usage:' ;;
+      10) expected='Goodbye.' ;;
     esac
     run bash -c '
-      printf "%s\n" "$1" | script -q -e -c '\''bash "$BATS_TEST_DIRNAME/ui-fixture.sh"'\'' /dev/null
+      printf "%s\n\n" "$1" | script -q -e -c '\''bash "$BATS_TEST_DIRNAME/ui-fixture.sh"'\'' /dev/null
     ' _ "$choice"
     [ "$status" -eq 0 ]
     [[ "$output" == *'Welcome to vless-xtls-vision-installer'* ]]
@@ -71,7 +103,7 @@ setup() { setup_sandbox; }
   export BATS_TEST_DIRNAME BATS_TEST_TMPDIR
   export WIZARD_DEFAULT_TEST=true WIZARD_STARTUP_MENU=true
   run bash -c '
-    printf "\n\n" | script -q -e -c '\''bash "$BATS_TEST_DIRNAME/wizard-fixture.sh"'\'' /dev/null
+    printf "\n\n\n" | script -q -e -c '\''bash "$BATS_TEST_DIRNAME/wizard-fixture.sh"'\'' /dev/null
   '
   [ "$status" -eq 0 ]
   [[ "$output" == *'WIZARD DEFAULTS RETAINED AT PACKAGE STAGE'* ]]
@@ -80,7 +112,7 @@ setup() { setup_sandbox; }
 @test "wizard cancellation stops before package installation" {
   export BATS_TEST_DIRNAME BATS_TEST_TMPDIR
   run bash -c '
-    printf "3\n" | script -q -e -c '\''bash "$BATS_TEST_DIRNAME/wizard-fixture.sh"'\'' /dev/null
+    printf "\n3\n" | script -q -e -c '\''bash "$BATS_TEST_DIRNAME/wizard-fixture.sh"'\'' /dev/null
   '
   [ "$status" -eq 1 ]
   [[ "$output" == *'Installation cancelled.'* ]]
@@ -97,11 +129,13 @@ setup() { setup_sandbox; }
 @test "customized numbered settings survive the review and validation" {
   export BATS_TEST_DIRNAME BATS_TEST_TMPDIR UI_WIZARD_ONLY=true
   run bash -c '
-    printf "%s\n" 2 "" "" 9443 "" 0.0.0.0 proxy.example.com "Alice laptop" 2 2 2 2 "" |
+    printf "%s\n" 2 2 2 9443 "" 0.0.0.0 proxy.example.com "Alice laptop" 2 2 2 2 "" |
       script -q -e -c '\''bash "$BATS_TEST_DIRNAME/ui-fixture.sh"'\'' /dev/null
   '
   [ "$status" -eq 0 ]
   [[ "$output" == *'WIZARD VALIDATED SETTINGS'* ]]
+  [[ "$output" == *'"SERVER_NAME": "www.apple.com"'* ]]
+  [[ "$output" == *'"DEST_ENDPOINT": "www.apple.com:443"'* ]]
   [[ "$output" == *'"LISTEN_PORT": "9443"'* ]]
   [[ "$output" == *'"LISTEN_ADDRESS": "0.0.0.0"'* ]]
   [[ "$output" == *'"PUBLIC_IP": "proxy.example.com"'* ]]
@@ -115,8 +149,12 @@ setup() { setup_sandbox; }
 @test "invalid settings return to editing and can be corrected" {
   export BATS_TEST_DIRNAME BATS_TEST_TMPDIR UI_WIZARD_ONLY=true
   run bash -c '
-    printf "%s\n" 2 "" "" bad "" "" "" "" "" "" "" "" "" \
-      "" "" "" 9443 "" "" "" "" "" "" "" "" "" |
+    printf "%s\n" 1 2 1 bad \
+      "" "" "" "" "" "" "" "" \
+      "" "" \
+      1 9443 \
+      "" "" "" "" "" "" "" "" \
+      "" |
       script -q -e -c '\''bash "$BATS_TEST_DIRNAME/ui-fixture.sh"'\'' /dev/null
   '
   [ "$status" -eq 0 ]

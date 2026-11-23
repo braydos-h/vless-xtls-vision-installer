@@ -12,6 +12,16 @@ cd vless-xtls-vision-installer
 sudo bash xray_reality_bootstrap.sh
 ```
 
+The guided installer starts with two simple choices: **1) install**, then a
+numbered list of camouflage websites. Press Enter at each prompt to accept the
+recommended defaults (Cloudflare and safe host settings). Prefer one command?
+List the presets and install by number:
+
+```bash
+sudo bash xray_reality_bootstrap.sh presets
+sudo bash xray_reality_bootstrap.sh install --preset 2
+```
+
 ##  Demo
 
 **VLESS + REALITY + XTLS Vision Full Setup in 78 Seconds Youtube!**
@@ -31,14 +41,17 @@ This project is designed to be practical for both first-time setup and long-term
 
 Running without arguments opens a welcome screen with the repository name,
 installer version and author, followed by a numbered menu. Choose install,
-preflight, status, clients, backups, help or exit. Press Enter to select the
-displayed default. Installation shows the current settings first: keep them with
-Enter, choose **Customize settings**, or cancel. Customization includes numbered
-firewall, update and yes/no choices, followed by a settings review. Use `-` to
-clear an optional alternate port or client-facing server address. Ctrl+C cancels.
-Existing profiles and saved settings supply the defaults on subsequent installs.
-When installation finishes, it prints the first client's VLESS link for copying
-into your client app. Display it again with `show-client NAME`.
+preflight, status, diagnostics, show a client link, clients, backups, update,
+help or exit. Press Enter to select the displayed default. Installation asks you
+to pick a camouflage website from a numbered list (Cloudflare, Apple, Microsoft,
+Mozilla, GitHub, Amazon, Google, Samsung or a custom target), then shows the
+current settings: keep them with Enter, choose **Change settings**, or cancel.
+Customization includes numbered firewall, update and yes/no choices, followed by
+a settings review. Use `-` to clear an optional alternate port or client-facing
+server address. Ctrl+C cancels. Existing profiles and saved settings supply the
+defaults on subsequent installs. When installation finishes, it prints the first
+client's VLESS link for copying into your client app, along with the next useful
+commands. Display it again with `show-client NAME`.
 
 You can also run commands directly, including `preflight` and `install`:
 
@@ -165,10 +178,42 @@ sudo bash xray_reality_bootstrap.sh preflight
 sudo bash xray_reality_bootstrap.sh install
 ```
 
-### 2) Understand defaults
+### 2) Choose a camouflage website (REALITY presets)
+
+The interactive wizard and the `--preset` option share one built-in list. Each
+preset sets both `SERVER_NAME` and `DEST_ENDPOINT` (`host:443`):
+
+| Number | Preset | REALITY target |
+|---|---|---|
+| 1 | Cloudflare | `www.cloudflare.com` |
+| 2 | Apple | `www.apple.com` |
+| 3 | Microsoft | `www.microsoft.com` |
+| 4 | Mozilla | `www.mozilla.org` |
+| 5 | GitHub | `github.com` |
+| 6 | Amazon | `www.amazon.com` |
+| 7 | Google | `www.google.com` |
+| 8 | Samsung | `www.samsung.com` |
+| 9 | Custom | your own hostname and port |
+
+```bash
+# See the same numbered list from the command line
+sudo bash xray_reality_bootstrap.sh presets
+
+# Install with a preset, or by its name
+sudo bash xray_reality_bootstrap.sh install --preset 2
+sudo bash xray_reality_bootstrap.sh install --preset apple
+```
+
+Presets are convenience defaults, not a guarantee. Every target still has to
+pass the REALITY probe (TLS 1.3, X25519, HTTP/2 and a matching certificate) from
+your VPS. Run `preflight --network-check` to test reachability before installing;
+if a target is blocked on your network, pick another preset or a custom target.
+
+### 3) Understand defaults
 
 Default behavior changes Xray only. By default:
 
+- Camouflage target: preset 1, Cloudflare (`www.cloudflare.com`)
 - `FIREWALL_STYLE=none`
 - `XRAY_UPDATE_POLICY=manual`
 - `BLOCK_PRIVATE_OUTBOUND=yes` (application-level routing rules)
@@ -177,7 +222,7 @@ Default behavior changes Xray only. By default:
 
 If IPv6 is unavailable, use `LISTEN_ADDRESS=0.0.0.0` in your profile.
 
-### 3) Initial validation and export
+### 4) Initial validation and export
 
 ```bash
 sudo /usr/local/sbin/xray-reality-bootstrap diagnose
@@ -221,8 +266,11 @@ sudo bash xray_reality_bootstrap.sh install --auto --non-interactive \
   --profile-json examples/profile.json --dry-run
 
 sudo bash xray_reality_bootstrap.sh install --auto --non-interactive \
-  --profile-json examples/profile.json --xray-version v26.3.27
+  --profile-json examples/profile.json --preset apple --xray-version v26.3.27
 ```
+
+`--preset` accepts a number from `presets` or a short id. It overrides
+`SERVER_NAME` and `DEST_ENDPOINT` from a profile, so the two stay consistent.
 
 Profile handling:
 
@@ -234,7 +282,7 @@ Profile handling:
 <details>
 <summary><strong>Migration / legacy note (version 1)</strong></summary>
 
-For version 1 deployments, read [CHANGELOG.md](CHANGELOG.md) and run `repair` with the new standalone script before normal lifecycle operations. Migration preserves valid identities/clients where state and config agree, rejects unsafe inconsistencies, and keeps legacy files for review rather than treating them as authoritative.
+For version 1 deployments, run `repair` with the new standalone script before normal lifecycle operations. Migration preserves valid identities/clients where state and config agree, rejects unsafe inconsistencies, and keeps legacy files for review rather than treating them as authoritative.
 
 ```bash
 sudo bash xray_reality_bootstrap.sh repair
@@ -346,13 +394,12 @@ No. Deployment quality improves safety and recoverability, but there is no unive
 No. Application-level routing applies to proxy traffic. Host-level isolation requires separate controls (for example, optional UID-scoped nftables egress) and still has limitations.
 
 **Can I rely on testing claims as production guarantees?**  
-No. Current checks pass 21 Python tests + 91 Bats tests, including interactive CLI navigation, defaults, customization, cancellation, invalid-setting correction and the blank-address wizard-to-export regression. All CI checks are local static and mocked tests; they do not install Xray or prove kernel/systemd/SSH integration or real client connectivity. The earlier Ubuntu 26.04 repair verified actual installation, repeat-install identity preservation, systemd/port 443 health and failed-activation rollback in a disposable WSL2 guest; prior Debian 12/Ubuntu 24.04 guest results are recorded separately. No production VPS was modified. See [validation scope](docs/TESTING.md).
+No. Current checks pass 22 Python tests + 93 Bats tests, covering interactive CLI navigation, numbered camouflage presets, defaults, customization, cancellation, invalid-setting correction and the blank-address wizard-to-export regression. All CI checks are local static and mocked tests; they do not install Xray or prove kernel/systemd/SSH integration or real client connectivity. The earlier Ubuntu 26.04 repair verified actual installation, repeat-install identity preservation, systemd/port 443 health and failed-activation rollback in a disposable WSL2 guest; prior Debian 12/Ubuntu 24.04 guest results are recorded separately. No production VPS was modified. See [validation scope](docs/TESTING.md).
 
 ## Technical documentation
 
 - [docs/TESTING.md](docs/TESTING.md)
 - [docs/AUDIT.md](docs/AUDIT.md)
-- [CHANGELOG.md](CHANGELOG.md)
 - [examples/profile.json](examples/profile.json)
 - [scripts/build.sh](scripts/build.sh) — rebuild standalone artifact from `lib/`
 - [scripts/check.sh](scripts/check.sh) — syntax + ShellCheck + shfmt + Python tests + Bats + JSON/profile validation + py_compile + reproducibility + docs/link/command checks

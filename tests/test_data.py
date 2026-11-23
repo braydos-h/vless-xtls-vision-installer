@@ -53,6 +53,20 @@ class DataTests(unittest.TestCase):
         self.assertEqual(p['FIREWALL_STYLE'], 'none')
         self.assertEqual(p['XRAY_UPDATE_POLICY'], 'manual')
 
+    def test_camouflage_presets_are_valid_and_selectable(self):
+        options = d.presets()
+        self.assertGreaterEqual(len(options), 6)
+        self.assertEqual(options[0]['id'], 'cloudflare')
+        self.assertEqual([o['number'] for o in options], list(range(1, len(options) + 1)))
+        for option in options:
+            self.assertEqual(d.domain(option['sni']), option['sni'])
+            self.assertEqual(d.endpoint(option['destination']), option['destination'])
+        self.assertEqual(d.preset('1'), options[0])
+        self.assertEqual(d.preset('apple')['sni'], 'www.apple.com')
+        for value in ['0', '99', 'nope', '', 2]:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                d.preset(value)
+
     def test_public_ip_discovery_requires_a_global_literal(self):
         self.assertEqual(d.public_ip(' 8.8.8.8\n'), '8.8.8.8')
         self.assertEqual(d.public_ip('2606:4700:4700::1111'), '2606:4700:4700::1111')

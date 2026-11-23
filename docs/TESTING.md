@@ -44,6 +44,16 @@ Run `bash scripts/check.sh` for the complete checks, or
 `bats tests/exports.bats` for the new workflow regression tests. Service mutation
 is mocked; these tests do not install Xray on the development WSL distribution.
 
+## Camouflage presets and guided setup
+
+The interactive setup now starts with a numbered list of REALITY targets
+(Cloudflare, Apple, Microsoft, Mozilla, GitHub, Amazon, Google, Samsung or a
+custom host), and `install --preset N|ID` applies the same choice in automation.
+Unit tests cover preset validation and number/id resolution. The wizard and
+export regressions exercise the extra numbered prompt through a pseudo-terminal.
+Presets are only convenience defaults: preflight still requires each target to
+negotiate TLS 1.3 with X25519, HTTP/2 and a matching certificate from the VPS.
+
 ## Ubuntu 26.04 repair validation (2026-10-18)
 
 - `bash scripts/check.sh`: 18 Python tests and 67 Bats tests passed in isolated
