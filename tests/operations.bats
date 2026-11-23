@@ -321,7 +321,7 @@ release_fixture() {
 
 @test "unpinned update never silently downgrades to an older stable release" {
   release_fixture false
-  printf '{"xray_version":"v26.10.10"}\n' >"$STATE_FILE"
+  printf '{"xray_version":"v26.10.31"}\n' >"$STATE_FILE"
   prepare_candidate
   [ "$UPDATE_SKIPPED" = true ]
   [ ! -f "$SANDBOX/asset-requested" ]

@@ -65,8 +65,8 @@ PYCODE
     cmp /root/initial-credentials.json /root/repeated-credentials.json
     "$helper" repair --non-interactive
     "$helper" status --json
-    "$helper" update --xray-version v26.10.10 --allow-prerelease --non-interactive
-    "$helper" update --xray-version v26.10.10 --allow-prerelease --non-interactive
+    "$helper" update --xray-version v26.10.31 --allow-prerelease --non-interactive
+    "$helper" update --xray-version v26.10.31 --allow-prerelease --non-interactive
     jq '.identity,.clients,.short_ids' /etc/xray/current/state.json >/root/updated-credentials.json
     cmp /root/initial-credentials.json /root/updated-credentials.json
     "$helper" add-client bob
