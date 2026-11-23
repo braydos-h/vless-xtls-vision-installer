@@ -122,6 +122,23 @@ class DataTests(unittest.TestCase):
             address = ipaddress.ip_address(value)
             self.assertFalse(any(address.version == r.version and address in r for r in ranges), value)
 
+    def test_config_contains_vless_reality_vision_inbound(self):
+        s = deployment()
+        inbound = d.config(s)['inbounds'][0]
+        self.assertEqual(inbound['protocol'], 'vless')
+        self.assertEqual(inbound['tag'], 'vless-reality-primary')
+        self.assertEqual(inbound['settings']['decryption'], 'none')
+        self.assertEqual(len(inbound['settings']['clients']), len(s['clients']))
+        self.assertEqual(inbound['settings']['clients'][0]['id'], s['clients'][0]['id'])
+        self.assertEqual(inbound['settings']['clients'][0]['flow'], 'xtls-rprx-vision')
+        self.assertEqual(inbound['streamSettings']['security'], 'reality')
+        reality = inbound['streamSettings']['realitySettings']
+        self.assertEqual(reality['target'], s['options']['DEST_ENDPOINT'])
+        self.assertEqual(reality['serverNames'], [s['options']['SERVER_NAME']])
+        self.assertEqual(reality['shortIds'], s['short_ids'])
+        self.assertEqual(reality['privateKey'], s['identity']['private_key'])
+        self.assertNotIn('publicKey', reality)
+
     def test_add_remove_rotate(self):
         s = deployment()
         original = copy.deepcopy(s)

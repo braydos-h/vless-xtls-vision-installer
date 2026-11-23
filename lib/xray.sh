@@ -19,11 +19,17 @@ download() {
   return "$rc"
 }
 validate_xray() {
-  local binary=$1 config=$2 assets=$3
+  local binary=$1 config=$2 assets=$3 staged
   jq -e 'type=="object"' "$config" >/dev/null
-  if ! XRAY_LOCATION_ASSET="$assets" "$binary" run -test -format json -config "$config" >"$WORK/config-test.log" 2>&1; then
+  # Xray 26.10.21 and later reject config paths without a recognised extension
+  # even when the format is explicit, so validate a private .json-named copy.
+  staged=$(mktemp "$WORK/xray-config-XXXXXX.json")
+  cp -- "$config" "$staged"
+  if ! XRAY_LOCATION_ASSET="$assets" "$binary" run -test -format json -config "$staged" >"$WORK/config-test.log" 2>&1; then
+    rm -f -- "$staged"
     die 'Xray rejected configuration. Active deployment is preserved; inspect the configuration privately.'
   fi
+  rm -f -- "$staged"
 }
 prepare_candidate() {
   workspace

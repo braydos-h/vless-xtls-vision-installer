@@ -43,8 +43,7 @@ IP routing does not replace the connection destination, so routing checks alone
 cannot guarantee DNS-rebinding prevention. Kernel enforcement closes this gap
 but also affects REALITY forwarding and service DNS.
 
-Privileged integration tests use separate disposable guests, rather than the
-workspace host's services or firewall. QEMU tools and verified cloud images were
-provisioned under temporary paths, with TCG software emulation. Mocked tests
-remain distinct from those kernel/systemd tests. See
+CI validation is limited to local static and mocked tests. They do not exercise
+kernel, systemd or SSH behavior, so privileged checks must use a separate
+disposable guest rather than the workspace host's services or firewall. See
 [validation coverage](TESTING.md) for actual results and unverified targets.
