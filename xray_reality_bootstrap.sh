@@ -40,6 +40,19 @@ DEFAULTS = {
     'XRAY_UPLINK_ONLY_TIMEOUT_SEC': '4', 'XRAY_DOWNLINK_ONLY_TIMEOUT_SEC': '10',
     'CAMOUFLAGE_ENABLED': 'no', 'CAMOUFLAGE_WEB_PORT': '18080', 'PUBLIC_IP': ''
 }
+# Ready-to-use camouflage targets. Every entry must negotiate TLS 1.3 with
+# X25519 and HTTP/2 so it can serve as a REALITY destination. The order is the
+# numbered order shown by the interactive wizard and `presets` command.
+PRESET_DEFINITIONS = [
+    ('cloudflare', 'Cloudflare', 'www.cloudflare.com', 'widely reachable default'),
+    ('apple', 'Apple', 'www.apple.com', 'works well on many mobile networks'),
+    ('microsoft', 'Microsoft', 'www.microsoft.com', 'high-availability enterprise target'),
+    ('mozilla', 'Mozilla', 'www.mozilla.org', 'open-source, broadly reachable'),
+    ('github', 'GitHub', 'github.com', 'developer favourite, broad reachability'),
+    ('amazon', 'Amazon', 'www.amazon.com', 'global retail/CDN target'),
+    ('google', 'Google', 'www.google.com', 'large global CDN (blocked in some regions)'),
+    ('samsung', 'Samsung', 'www.samsung.com', 'popular in Asia'),
+]
 V4 = ['0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8',
       '169.254.0.0/16', '172.16.0.0/12', '192.0.0.0/24', '192.0.2.0/24',
       '192.168.0.0/16', '198.18.0.0/15', '198.51.100.0/24', '203.0.113.0/24',
@@ -115,6 +128,32 @@ def public_ip(value):
     if not address.is_global or address.is_multicast:
         fail('public address discovery returned a non-public IP')
     return str(address)
+
+
+def presets():
+    """Return the built-in camouflage targets in numbered order."""
+    result = []
+    for number, (identifier, label, hostname, note) in enumerate(PRESET_DEFINITIONS, 1):
+        sni = domain(hostname)
+        result.append({'number': number, 'id': identifier, 'label': label,
+                       'sni': sni, 'destination': sni + ':443', 'note': note})
+    return result
+
+
+def preset(value):
+    """Resolve a preset by 1-based number or short id (for example 2 or apple)."""
+    if not isinstance(value, str):
+        fail('preset must be a string')
+    options = presets()
+    if re.fullmatch(r'[0-9]{1,2}', value):
+        number = int(value)
+        if not 1 <= number <= len(options):
+            fail('preset number must be between 1 and ' + str(len(options)))
+        return options[number - 1]
+    for option in options:
+        if option['id'] == value.lower():
+            return option
+    fail('unknown preset; choose a number or one of: ' + ', '.join(o['id'] for o in options))
 
 
 def endpoint(value):
@@ -554,12 +593,16 @@ def main():
         fail('data command required')
     command, a = sys.argv[1], sys.argv[2:]
     counts = {'defaults':0, 'profile':1, 'profile-legacy':3, 'profile-deployed':2, 'state':1, 'migrate':2, 'config':1,
-              'mutate':4, 'export':3, 'extract':2, 'validate':2, 'cidrs':1,
+              'mutate':4, 'export':3, 'extract':2, 'validate':2, 'cidrs':1, 'presets':0, 'preset':1,
               'egress-check':2, 'key-der':2, 'public-key':1, 'public-ip':1}
     if command not in counts or len(a) != counts[command]:
         fail('invalid data command or argument count')
     if command == 'defaults':
         emit(profile({}))
+    elif command == 'presets':
+        emit(presets())
+    elif command == 'preset':
+        emit(preset(a[0]))
     elif command == 'profile':
         emit(profile(load(a[0])))
     elif command == 'public-ip':
@@ -858,6 +901,11 @@ load_profile() {
     data profile "$PROFILE" >"$WORK/profile-validated" || return $?
     mv "$WORK/profile-validated" "$PROFILE" || return $?
   fi
+  if [[ -n ${PRESET_CLI:-} ]]; then
+    apply_reality_preset "$PRESET_CLI" || return $?
+    data profile "$PROFILE" >"$WORK/profile-validated" || return $?
+    mv "$WORK/profile-validated" "$PROFILE" || return $?
+  fi
 }
 
 detect_public_ip() {
@@ -915,10 +963,11 @@ prompt_value() {
 wizard() {
   [[ -t 0 && $NON_INTERACTIVE == false ]] || die 'Use install --auto --non-interactive with a profile on noninteractive hosts.'
   local action default=continue
+  wizard_reality_target || die 'Could not apply the selected camouflage preset.'
   while :; do
     wizard_summary
     action=$(prompt_choice 'Next step' "$default" \
-      'continue|Install with the settings above' 'edit|Customize settings' 'cancel|Cancel')
+      'continue|Install now with these settings' 'edit|Change settings' 'cancel|Cancel installation')
     case "$action" in
       continue)
         if data profile "$PROFILE" >"$WORK/validated" 2>"$WORK/wizard-errors"; then
@@ -994,7 +1043,7 @@ stage_generation() {
 
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-only
-installer_version() { printf '2.0.0'; }
+installer_version() { printf '2.1.0'; }
 
 welcome_screen() {
   cat >&2 <<EOF
@@ -1006,7 +1055,14 @@ welcome_screen() {
   Made by: braydos-h
 ============================================================
 
+  Quick install: choose 1, pick a camouflage site, press Enter.
+  Camouflage presets are numbered 1-8 (1 = Cloudflare, the default).
+  Every prompt shows a default; press Enter to accept it.
 EOF
+  if [[ ${EUID:-1} != 0 ]]; then
+    printf '\n  Note: installing or changing the server requires sudo (root).\n' >&2
+  fi
+  printf '\n' >&2
 }
 
 # Menus go to stderr so command substitution captures only the selected value.
@@ -1045,16 +1101,107 @@ prompt_choice() {
   done
 }
 
+print_presets() {
+  printf 'Built-in camouflage targets (used as the REALITY destination):\n'
+  data presets | jq -r '.[] | "  \(.number)) \(.label) - \(.sni) (\(.note))"'
+}
+
+# Build "id|Label - hostname" entries for the numbered wizard prompt.
+reality_preset_options() {
+  data presets | jq -r '.[] | "\(.id)|\(.label) - \(.sni)"'
+}
+
+reality_preset_default() {
+  local current_sni current_destination id sni destination
+  current_sni=$(profile_opt SERVER_NAME) || current_sni=''
+  current_destination=$(profile_opt DEST_ENDPOINT) || current_destination=''
+  while IFS=$'\t' read -r id sni destination; do
+    if [[ $sni == "$current_sni" && $destination == "$current_destination" ]]; then
+      printf '%s' "$id"
+      return 0
+    fi
+  done < <(data presets | jq -r '.[] | "\(.id)\t\(.sni)\t\(.destination)"')
+  printf ''
+}
+
+reality_preset_label() {
+  data presets | jq -r --arg sni "$1" '[.[] | select(.sni == $sni) | .label][0] // empty'
+}
+
+# Accept either a 1-based number (as shown by the wizard) or a short id.
+apply_reality_preset() {
+  local selector=$1 result name destination
+  workspace || return $?
+  if ! result=$(data preset "$selector" 2>"$WORK/reality-preset-error"); then
+    log "[FAIL] Unknown camouflage preset '$selector'. Run 'presets' to list the built-in choices."
+    return 1
+  fi
+  name=$(printf '%s\n' "$result" | jq -r '.sni') || return 1
+  destination=$(printf '%s\n' "$result" | jq -r '.destination') || return 1
+  set_profile SERVER_NAME "$name" || return 1
+  set_profile DEST_ENDPOINT "$destination"
+}
+
+wizard_reality_target() {
+  local default choice option options=() current
+  workspace || return $?
+  current=$(profile_opt SERVER_NAME) || current=''
+  default=$(reality_preset_default)
+  if [[ -z $default ]]; then
+    options+=("keep|Keep current target - $current")
+    default='keep'
+  fi
+  while IFS= read -r option; do
+    options+=("$option")
+  done < <(reality_preset_options)
+  options+=('custom|Custom target - type your own hostname and port')
+  choice=$(prompt_choice 'Choose a camouflage website for REALITY' "$default" "${options[@]}")
+  if [[ $choice == keep ]]; then
+    log "Keeping the current camouflage target: $current."
+  elif [[ $choice == custom ]]; then
+    set_profile SERVER_NAME "$(prompt_value 'Camouflage hostname (SNI)' "$(profile_opt SERVER_NAME)")" || return 1
+    set_profile DEST_ENDPOINT "$(prompt_value 'Forwarding destination host:port' "$(profile_opt DEST_ENDPOINT)")"
+  else
+    apply_reality_preset "$choice" || return 1
+    log "Camouflage target: $(profile_opt SERVER_NAME) (unauthenticated TLS is forwarded to $(profile_opt DEST_ENDPOINT))."
+  fi
+}
+
+deployment_hint() {
+  local name=''
+  if [[ -f $STATE_FILE ]]; then
+    name=$(jq -r '.clients[0].name // empty' "$STATE_FILE" 2>/dev/null) || name=''
+  fi
+  if [[ -n $name ]]; then
+    printf 'Existing deployment found (first client: %s).\n' "$name" >&2
+  else
+    printf 'No deployment found yet. Choose 1 for a guided install.\n' >&2
+  fi
+}
+
 startup_menu() {
+  local default_name
+  deployment_hint
   MODE=$(prompt_choice 'What would you like to do?' install \
-    'install|Install / configure Xray' \
-    'preflight|Check this server (preflight)' \
-    'status|View deployment status' \
+    'install|Install or reconfigure Xray' \
+    'preflight|Check this server before installing' \
+    'status|Show deployment status' \
+    'diagnose|Run full diagnostics' \
+    'show-client|Show a client VLESS link' \
     'list-clients|List clients' \
     'list-backups|List backups' \
+    'update|Update Xray' \
     'help|Show all commands' \
     'exit|Exit')
   case "$MODE" in
+    show-client)
+      default_name='reality-main'
+      if [[ -f $STATE_FILE ]]; then
+        default_name=$(jq -r '.clients[0].name // empty' "$STATE_FILE" 2>/dev/null) || default_name=''
+        [[ -n $default_name ]] || default_name='reality-main'
+      fi
+      NAME=$(prompt_value 'Client name' "$default_name")
+      ;;
     help)
       usage
       exit 0
@@ -1067,22 +1214,64 @@ startup_menu() {
 }
 
 wizard_summary() {
-  local key value
+  local camouflage destination listen alternate address client firewall updates block nginx ssh upgrades egress port label ports
+  camouflage=$(profile_opt SERVER_NAME)
+  label=$(reality_preset_label "$camouflage" 2>/dev/null) || label=''
+  [[ -z $label ]] || camouflage="$label ($camouflage)"
+  destination=$(profile_opt DEST_ENDPOINT)
+  listen=$(profile_opt LISTEN_ADDRESS)
+  port=$(profile_opt LISTEN_PORT)
+  alternate=$(profile_opt FALLBACK_PORT)
+  ports=$port
+  [[ -z $alternate ]] || ports="$port and $alternate"
+  address=$(profile_opt PUBLIC_IP)
+  client=$(profile_opt PROFILE_NAME)
+  firewall=$(profile_opt FIREWALL_STYLE)
+  updates=$(profile_opt XRAY_UPDATE_POLICY)
+  block=$(profile_opt BLOCK_PRIVATE_OUTBOUND)
+  nginx=$(profile_opt CAMOUFLAGE_ENABLED)
+  ssh=$(profile_opt SSH_HARDENING)
+  upgrades=$(profile_opt UNATTENDED_UPGRADES_ENABLED)
+  egress=$(profile_opt OS_PRIVATE_OUTBOUND)
+  [[ -n $address ]] || address='auto-detect'
+  [[ -n $alternate ]] || alternate='disabled'
+  if [[ $listen == *:* ]]; then listen="[$listen]"; fi
+  case "$firewall" in
+    none) firewall='none - host firewall unchanged' ;;
+    nftables) firewall='nftables - installer-managed rules' ;;
+    ufw) firewall='ufw - tagged rules in the active firewall' ;;
+  esac
+  case "$updates" in
+    manual) updates='manual (recommended)' ;;
+    weekly) updates='automatic weekly' ;;
+    daily) updates='automatic daily' ;;
+  esac
+  if [[ $block == yes ]]; then block='yes - proxy traffic only'; else block='no'; fi
+  if [[ $nginx == yes ]]; then nginx='yes - loopback diagnostics site'; else nginx='no'; fi
+  if [[ $ssh == yes ]]; then ssh='requested (applied later by harden-ssh)'; else ssh='no'; fi
+  if [[ $egress == yes ]]; then egress='yes - enforce with nftables'; else egress='no'; fi
   printf '\nInstallation settings\n' >&2
-  for key in SERVER_NAME DEST_ENDPOINT LISTEN_PORT FALLBACK_PORT LISTEN_ADDRESS PUBLIC_IP PROFILE_NAME FIREWALL_STYLE XRAY_UPDATE_POLICY BLOCK_PRIVATE_OUTBOUND CAMOUFLAGE_ENABLED SSH_HARDENING FAIL2BAN_ENABLED UNATTENDED_UPGRADES_ENABLED OS_PRIVATE_OUTBOUND; do
-    value=$(profile_opt "$key")
-    if [[ -z $value ]]; then
-      if [[ $key == PUBLIC_IP ]]; then value='auto-detect'; else value='disabled'; fi
-    fi
-    printf '  %-30s %s\n' "$key" "$value" >&2
-  done
-  printf '\nEnter keeps the displayed default. Ctrl+C cancels.\n' >&2
+  printf '  %-24s %s\n' 'Camouflage website' "$camouflage" >&2
+  printf '  %-24s %s\n' 'REALITY forward target' "$destination" >&2
+  printf '  %-24s %s:%s (alternate: %s)\n' 'Xray listener' "$listen" "$port" "$alternate" >&2
+  printf '  %-24s %s\n' 'Client-facing address' "$address" >&2
+  printf '  %-24s %s\n' 'First client name' "$client" >&2
+  printf '  %-24s %s\n' 'Host firewall' "$firewall" >&2
+  printf '  %-24s %s\n' 'Xray updates' "$updates" >&2
+  printf '  %-24s %s\n' 'Block private networks' "$block" >&2
+  printf '  %-24s %s\n' 'Local web diagnostics' "$nginx" >&2
+  printf '  %-24s %s\n' 'SSH hardening' "$ssh" >&2
+  printf '  %-24s %s\n' 'Unattended OS upgrades' "$upgrades" >&2
+  printf '  %-24s %s\n' 'OS-level egress filter' "$egress" >&2
+  printf '\nTip: if your provider has its own firewall, allow TCP %s.\n' "$ports" >&2
+  printf 'Enter keeps the displayed default. Ctrl+C cancels.\n' >&2
 }
 
 wizard_customize() {
   local key label value
-  printf '\nCustomize settings\nUse - to clear an optional port or server address.\n' >&2
-  for key in SERVER_NAME DEST_ENDPOINT LISTEN_PORT FALLBACK_PORT LISTEN_ADDRESS PUBLIC_IP PROFILE_NAME FIREWALL_STYLE XRAY_UPDATE_POLICY BLOCK_PRIVATE_OUTBOUND CAMOUFLAGE_ENABLED; do
+  wizard_reality_target || return $?
+  printf '\nCustomize settings\nPress Enter to keep a value; use - to clear an optional field.\n' >&2
+  for key in LISTEN_PORT FALLBACK_PORT LISTEN_ADDRESS PUBLIC_IP PROFILE_NAME FIREWALL_STYLE XRAY_UPDATE_POLICY BLOCK_PRIVATE_OUTBOUND CAMOUFLAGE_ENABLED; do
     value=$(profile_opt "$key")
     case "$key" in
       FIREWALL_STYLE)
@@ -1105,12 +1294,10 @@ wizard_customize() {
         ;;
       *)
         case "$key" in
-          SERVER_NAME) label='REALITY server name (SNI)' ;;
-          DEST_ENDPOINT) label='REALITY destination (host:port)' ;;
           LISTEN_PORT) label='Xray listen port' ;;
           FALLBACK_PORT) label='Optional alternate listen port (blank disables)' ;;
           LISTEN_ADDRESS) label='Listen address (:: for IPv4/IPv6, 0.0.0.0 for IPv4)' ;;
-          PUBLIC_IP) label='Server IP or hostname for clients (blank auto-detects)' ;;
+          PUBLIC_IP) label='Client-facing server IP or hostname (blank auto-detects)' ;;
           PROFILE_NAME) label='First client name' ;;
         esac
         value=$(prompt_value "$label" "$value")
@@ -2490,15 +2677,18 @@ usage() {
 Usage: xray_reality_bootstrap.sh COMMAND [CLIENT_NAME | BACKUP_ID] [OPTIONS]
 Run without arguments in a terminal for the welcome screen and interactive menu.
 Commands:
-  install update repair preflight status diagnose reprint uninstall
+  install update repair preflight status diagnose reprint uninstall presets
   add-client remove-client list-clients show-client rotate-client export-client
   rotate-shortid finalize-shortid backup restore list-backups recover
   harden-ssh restore-ssh confirm-host firewall-sync clear-firewall test-client
 Options:
-  --auto --non-interactive --profile-json PATH --dry-run --network-check --allow-prerelease
-  --xray-version vN.N.N --shortid-count 1..16 --migration-window SECONDS
-  --key-login-confirmed --yes --json --transaction-id TOKEN --test-url HTTPS_URL
+  --auto --non-interactive --profile-json PATH --preset NAME_OR_NUMBER --dry-run
+  --network-check --allow-prerelease --xray-version vN.N.N --shortid-count 1..16
+  --migration-window SECONDS --key-login-confirmed --yes --json
+  --transaction-id TOKEN --test-url HTTPS_URL
   --public-ip SERVER_IP_OR_HOSTNAME (install/preflight or client export override)
+Quick start: run 'presets' to list camouflage sites, then install with e.g.
+  --preset 1 (Cloudflare), --preset 2 (Apple), ... or --preset apple.
 Install defaults: no firewall/SSH/OS changes, manual Xray updates, private routing block.
 Use preflight first. Firewall and SSH transitions require confirm-host in a new
 SSH session within 180 seconds. Install prints the first client's VLESS link;
@@ -2509,18 +2699,19 @@ parse_args() {
   ALLOW_PRERELEASE_CLI=false
   MODE=install AUTO=false NON_INTERACTIVE=false DRY_RUN=false PROFILE_PATH='' PIN='' SID_COUNT=''
   NAME='' WINDOW=604800 KEY_CONFIRMED=false YES=false NETWORK_CHECK=false TRANSACTION_ID='' TEST_URL='' PUBLIC_IP_CLI=''
+  PRESET_CLI=''
   local positional=false
   if (($#)) && [[ $1 != -* ]]; then
     MODE=$1
     shift
   fi
   case "$MODE" in
-    install | update | repair | preflight | status | diagnose | reprint | uninstall | add-client | remove-client | list-clients | show-client | rotate-client | export-client | rotate-shortid | finalize-shortid | backup | restore | list-backups | recover | harden-ssh | restore-ssh | confirm-host | firewall-sync | clear-firewall | test-client) ;;
+    install | update | repair | preflight | status | diagnose | reprint | uninstall | presets | add-client | remove-client | list-clients | show-client | rotate-client | export-client | rotate-shortid | finalize-shortid | backup | restore | list-backups | recover | harden-ssh | restore-ssh | confirm-host | firewall-sync | clear-firewall | test-client) ;;
     *) die 'Unknown command. Use --help.' ;;
   esac
   while (($#)); do
     case "$1" in
-      --profile-json=* | --xray-version=* | --shortid-count=* | --migration-window=* | --transaction-id=* | --test-url=* | --public-ip=*)
+      --profile-json=* | --xray-version=* | --shortid-count=* | --migration-window=* | --transaction-id=* | --test-url=* | --public-ip=* | --preset=*)
         set -- "${1%%=*}" "${1#*=}" "${@:2}"
         ;;
     esac
@@ -2533,7 +2724,7 @@ parse_args() {
       --key-login-confirmed) KEY_CONFIRMED=true ;;
       --yes) YES=true ;;
       --json) : ;; # Status/diagnose are always structured and redacted.
-      --profile-json | --xray-version | --shortid-count | --migration-window | --transaction-id | --test-url | --public-ip)
+      --profile-json | --xray-version | --shortid-count | --migration-window | --transaction-id | --test-url | --public-ip | --preset)
         (($# >= 2)) || die "Missing value for $1"
         case "$1" in
           --profile-json) PROFILE_PATH=$2 ;;
@@ -2543,6 +2734,7 @@ parse_args() {
           --transaction-id) TRANSACTION_ID=$2 ;;
           --test-url) TEST_URL=$2 ;;
           --public-ip) PUBLIC_IP_CLI=$2 ;;
+          --preset) PRESET_CLI=$2 ;;
         esac
         shift
         ;;
@@ -2620,7 +2812,8 @@ finish_install() {
     # Leave durable journal for the separate confirmer/watchdog.
     TX_ACTIVE=false
   else commit_transaction; fi
-  log 'Xray deployed. Run diagnose to check the deployment.'
+  log 'Installation complete. Xray is running with the selected settings.'
+  log 'Run diagnose to check the deployment.'
   [[ $(opt SSH_HARDENING) != yes ]] || log 'SSH option requested: run harden-ssh separately after confirming proxy installation.'
   if [[ $MODE == install ]]; then
     local NAME MODE=show-client
@@ -2629,6 +2822,11 @@ finish_install() {
     if export_client_mode; then :; else
       log "Xray is deployed, but the client link could not be displayed. Run show-client \"$NAME\" to retry."
     fi
+    log 'Next steps:'
+    log "  Show this link again : sudo $HELPER show-client \"$NAME\""
+    log "  List clients         : sudo $HELPER list-clients"
+    log "  Check health         : sudo $HELPER diagnose"
+    log "  Client config files  : $CLIENT_DIR (root-only)"
   fi
 }
 repair_mode() {
@@ -2715,6 +2913,11 @@ main() {
   fi
   if [[ $MODE == preflight || ($MODE == install && $DRY_RUN == true) ]]; then
     if dry_run_mode; then exit 0; else exit $?; fi
+  fi
+  if [[ $MODE == presets ]]; then
+    require_tools jq python3
+    print_presets
+    exit 0
   fi
   require_tools jq python3 openssl
   if [[ $DRY_RUN == true ]]; then

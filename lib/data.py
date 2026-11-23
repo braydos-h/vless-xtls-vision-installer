@@ -30,6 +30,19 @@ DEFAULTS = {
     'XRAY_UPLINK_ONLY_TIMEOUT_SEC': '4', 'XRAY_DOWNLINK_ONLY_TIMEOUT_SEC': '10',
     'CAMOUFLAGE_ENABLED': 'no', 'CAMOUFLAGE_WEB_PORT': '18080', 'PUBLIC_IP': ''
 }
+# Ready-to-use camouflage targets. Every entry must negotiate TLS 1.3 with
+# X25519 and HTTP/2 so it can serve as a REALITY destination. The order is the
+# numbered order shown by the interactive wizard and `presets` command.
+PRESET_DEFINITIONS = [
+    ('cloudflare', 'Cloudflare', 'www.cloudflare.com', 'widely reachable default'),
+    ('apple', 'Apple', 'www.apple.com', 'works well on many mobile networks'),
+    ('microsoft', 'Microsoft', 'www.microsoft.com', 'high-availability enterprise target'),
+    ('mozilla', 'Mozilla', 'www.mozilla.org', 'open-source, broadly reachable'),
+    ('github', 'GitHub', 'github.com', 'developer favourite, broad reachability'),
+    ('amazon', 'Amazon', 'www.amazon.com', 'global retail/CDN target'),
+    ('google', 'Google', 'www.google.com', 'large global CDN (blocked in some regions)'),
+    ('samsung', 'Samsung', 'www.samsung.com', 'popular in Asia'),
+]
 V4 = ['0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8',
       '169.254.0.0/16', '172.16.0.0/12', '192.0.0.0/24', '192.0.2.0/24',
       '192.168.0.0/16', '198.18.0.0/15', '198.51.100.0/24', '203.0.113.0/24',
@@ -105,6 +118,32 @@ def public_ip(value):
     if not address.is_global or address.is_multicast:
         fail('public address discovery returned a non-public IP')
     return str(address)
+
+
+def presets():
+    """Return the built-in camouflage targets in numbered order."""
+    result = []
+    for number, (identifier, label, hostname, note) in enumerate(PRESET_DEFINITIONS, 1):
+        sni = domain(hostname)
+        result.append({'number': number, 'id': identifier, 'label': label,
+                       'sni': sni, 'destination': sni + ':443', 'note': note})
+    return result
+
+
+def preset(value):
+    """Resolve a preset by 1-based number or short id (for example 2 or apple)."""
+    if not isinstance(value, str):
+        fail('preset must be a string')
+    options = presets()
+    if re.fullmatch(r'[0-9]{1,2}', value):
+        number = int(value)
+        if not 1 <= number <= len(options):
+            fail('preset number must be between 1 and ' + str(len(options)))
+        return options[number - 1]
+    for option in options:
+        if option['id'] == value.lower():
+            return option
+    fail('unknown preset; choose a number or one of: ' + ', '.join(o['id'] for o in options))
 
 
 def endpoint(value):
@@ -544,12 +583,16 @@ def main():
         fail('data command required')
     command, a = sys.argv[1], sys.argv[2:]
     counts = {'defaults':0, 'profile':1, 'profile-legacy':3, 'profile-deployed':2, 'state':1, 'migrate':2, 'config':1,
-              'mutate':4, 'export':3, 'extract':2, 'validate':2, 'cidrs':1,
+              'mutate':4, 'export':3, 'extract':2, 'validate':2, 'cidrs':1, 'presets':0, 'preset':1,
               'egress-check':2, 'key-der':2, 'public-key':1, 'public-ip':1}
     if command not in counts or len(a) != counts[command]:
         fail('invalid data command or argument count')
     if command == 'defaults':
         emit(profile({}))
+    elif command == 'presets':
+        emit(presets())
+    elif command == 'preset':
+        emit(preset(a[0]))
     elif command == 'profile':
         emit(profile(load(a[0])))
     elif command == 'public-ip':

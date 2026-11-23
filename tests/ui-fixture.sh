@@ -6,11 +6,12 @@ set -Eeuo pipefail
 source "${BATS_TEST_DIRNAME:?}/helpers.bash"
 setup_sandbox
 init_paths() { :; }
-lock_operation() { die 'Unexpected mutation from menu.'; }
+lock_operation() { [[ ${MODE:-} == show-client ]] || die 'Unexpected mutation from menu.'; }
 check_platform() { die 'Unexpected platform check from menu.'; }
-diagnose_mode() { printf '{"menu":"status"}\n'; }
+diagnose_mode() { printf '{"menu":"%s"}\n' "$MODE"; }
 list_clients_mode() { printf 'MENU CLIENTS\n'; }
 list_backups_mode() { printf 'MENU BACKUPS\n'; }
+export_client_mode() { printf 'MENU SHOW %s\n' "$NAME"; }
 dry_run_mode() { printf 'MENU PREFLIGHT\n'; }
 if [[ ${UI_WIZARD_ONLY:-false} == true ]]; then
   parse_args install

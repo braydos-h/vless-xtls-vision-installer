@@ -53,6 +53,11 @@ load_profile() {
     data profile "$PROFILE" >"$WORK/profile-validated" || return $?
     mv "$WORK/profile-validated" "$PROFILE" || return $?
   fi
+  if [[ -n ${PRESET_CLI:-} ]]; then
+    apply_reality_preset "$PRESET_CLI" || return $?
+    data profile "$PROFILE" >"$WORK/profile-validated" || return $?
+    mv "$WORK/profile-validated" "$PROFILE" || return $?
+  fi
 }
 
 detect_public_ip() {
@@ -110,10 +115,11 @@ prompt_value() {
 wizard() {
   [[ -t 0 && $NON_INTERACTIVE == false ]] || die 'Use install --auto --non-interactive with a profile on noninteractive hosts.'
   local action default=continue
+  wizard_reality_target || die 'Could not apply the selected camouflage preset.'
   while :; do
     wizard_summary
     action=$(prompt_choice 'Next step' "$default" \
-      'continue|Install with the settings above' 'edit|Customize settings' 'cancel|Cancel')
+      'continue|Install now with these settings' 'edit|Change settings' 'cancel|Cancel installation')
     case "$action" in
       continue)
         if data profile "$PROFILE" >"$WORK/validated" 2>"$WORK/wizard-errors"; then
