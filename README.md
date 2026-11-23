@@ -2,7 +2,7 @@
 ### The Best Xray Installer Script You'll Find. 
 ### No Domain, No Certificate, Just one .sh
 
-## ⚡ Quick Install
+##  Quick Install
 
 ```bash
 git clone https://github.com/braydos-h/vless-xtls-vision-installer.git
