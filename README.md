@@ -1,5 +1,5 @@
 #  VLESS + REALITY + XTLS Vision Installer
-### The Best Xray Installer Script You'll Find.
+### The Best Xray Installer Script You'll Find. No Domain, No Cert, Just one .sh
 
 
 ##  Demo
