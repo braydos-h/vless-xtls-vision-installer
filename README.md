@@ -1,5 +1,4 @@
 #  VLESS + REALITY + XTLS Vision Installer
-### The Best Xray Installer Script You'll Find. 
 ### One Command. No Domain. No Certificate. Complete Control. 
 ### Advanced DPI Resistance • Anti-MITM Protection • TLS Camouflage • Active Probing Resistance • Censorship Circumvention
 ##  Quick Install
