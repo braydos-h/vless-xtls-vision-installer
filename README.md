@@ -1,6 +1,14 @@
 #  VLESS + REALITY + XTLS Vision Installer
-### The Best Xray Installer Script You'll Find. No Domain, No Cert, Just one .sh
+### The Best Xray Installer Script You'll Find. 
+### No Domain, No Certificate, Just one .sh
 
+## ⚡ Quick Install
+
+```bash
+git clone https://github.com/braydos-h/vless-xtls-vision-installer.git
+cd vless-xtls-vision-installer
+sudo bash xray_reality_bootstrap.sh
+```
 
 ##  Demo
 
@@ -18,14 +26,6 @@
 A security-focused, recoverable installer and lifecycle manager for a single Xray deployment using VLESS + REALITY + `xtls-rprx-vision`. It emphasizes safe activation, controlled host impact, and operational maintainability: strict profile validation, immutable deployment generations, atomic rollouts, rollback/recovery workflows, and explicit (not silent) hardening operations.
 
 This project is designed to be practical for both first-time setup and long-term administration. It does **not** claim guaranteed censorship bypass, anonymity, universal DPI resistance, or universal client compatibility.
-
-## ⚡ Quick Install
-
-```bash
-git clone https://github.com/braydos-h/vless-xtls-vision-installer.git
-cd vless-xtls-vision-installer
-sudo bash xray_reality_bootstrap.sh
-```
 
 Running without arguments opens a welcome screen with the repository name,
 installer version and author, followed by a numbered menu. Choose install,
