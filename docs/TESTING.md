@@ -19,6 +19,11 @@ bash scripts/fetch-test-xray.sh v26.3.27 /tmp/xray-test
 python3 tests/integration/protocol.py /tmp/xray-test/unpack/xray
 ```
 
+Pin published stable release tags only. A tag that upstream withdraws (the
+previously pinned `v26.10.10` no longer resolves) fails the download with HTTP 404
+and breaks the CI matrix. The matrix covers the oldest supported release and the
+current stable release.
+
 The protocol fixture starts real Xray server/client processes and local TLS, DNS
 and HTTP endpoints on ephemeral loopback ports. It tests VLESS + REALITY + Vision,
 unauthenticated TLS forwarding to the target, multiple clients, UUID revocation,
@@ -112,7 +117,7 @@ is mocked; these tests do not install Xray on the development WSL distribution.
   policy files and the automatic-update timer remained absent with default
   policies. Injecting a candidate that passes syntax checks but exits at runtime
   restored the previous generation and active listener with `ROLLED_BACK`.
-- Real Xray `v26.3.27` and `v26.10.10` passed the existing process/protocol suite:
+- Real Xray `v26.3.27` and `v26.11.9` pass the existing process/protocol suite:
   `bash scripts/fetch-test-xray.sh VERSION /tmp/xray-test`, then
   `python3 tests/integration/protocol.py /tmp/xray-test/unpack/xray`.
 
@@ -131,12 +136,14 @@ still require verification on the target VPS. No production VPS was modified.
   legacy bind-address preservation, skipped-update backup behavior and large UFW status output under
   pipefail. The complete check script also passed from a temporary project copy
   owned by `nobody`, without root privileges.
-- Real amd64 Xray `v26.3.27` and `v26.10.10` binaries passed the protocol tests.
-  `v26.3.27` archive matched API SHA-256
-  `23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae`.
-  `v26.10.10` matched
-  `72a5fde819713a103c6fc26a87aa025c1518c918a34eba4bc38d64dc0728e5d9`.
-  The latter was an upstream prerelease and required explicit installer opt-in.
+- Real amd64 Xray binaries passed the protocol tests. The `v26.3.27` archive
+  matched API SHA-256
+  `23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae`;
+  current stable `v26.11.9` matched
+  `b651f7e1d9966ee2c1b1ee1bf8b52c72771824d3065dce96bbc8bcc19ed95f82`.
+  The previously pinned upstream prerelease `v26.10.10` was withdrawn and is no
+  longer downloadable. Xray 26.10.21 and later reject config paths without a
+  recognised extension, so `validate_xray` validates a private `.json`-named copy.
 - Static checks and standalone reproducibility were run locally; see the final
   implementation report for exact commands and final counts.
 - Debian 12 was exercised in a disposable amd64 QEMU guest with its own systemd

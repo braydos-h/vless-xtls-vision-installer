@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        xray: [v26.3.27, v26.10.10]
+        xray: [v26.3.27, v26.11.9]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - run: bash scripts/fetch-test-xray.sh '${{ matrix.xray }}' "$RUNNER_TEMP/xray"

@@ -218,6 +218,21 @@ setup() { setup_sandbox; }
   [ ! -f "$SANDBOX/unexpected-download" ]
 }
 
+@test "configuration validation works for releases that require a .json path" {
+  cat >"$SANDBOX/bin/xray-json-only" <<'EOF'
+#!/usr/bin/env bash
+for argument in "$@"; do
+  if [[ $argument == *.json ]]; then exit 0; fi
+done
+exit 23
+EOF
+  chmod 755 "$SANDBOX/bin/xray-json-only"
+  printf '{"outbounds":[{"protocol":"freedom"}]}' >"$WORK/staged-config"
+  run validate_xray "$SANDBOX/bin/xray-json-only" "$WORK/staged-config" "$WORK"
+  [ "$status" -eq 0 ]
+  [ -z "$(find "$WORK" -maxdepth 1 -name 'xray-config-*.json' -print -quit)" ]
+}
+
 @test "client dry run validates changes without activating a deployment" {
   DESIRED=$WORK/input-state.json
   python3 - "$DESIRED" "$BATS_TEST_DIRNAME" <<'PY'
