@@ -12,15 +12,6 @@ cd vless-xtls-vision-installer
 sudo bash xray_reality_bootstrap.sh
 ```
 
-The guided installer starts with two simple choices: **1) install**, then a
-numbered list of camouflage websites. Press Enter at each prompt to accept the
-recommended defaults (Cloudflare and safe host settings). Prefer one command?
-List the presets and install by number:
-
-```bash
-sudo bash xray_reality_bootstrap.sh presets
-sudo bash xray_reality_bootstrap.sh install --preset 2
-```
 
 ##  Demo
 
