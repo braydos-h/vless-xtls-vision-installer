@@ -57,6 +57,7 @@ sudo /usr/local/sbin/xray-reality-bootstrap diagnose
 sudo /usr/local/sbin/xray-reality-bootstrap list-clients
 sudo /usr/local/sbin/xray-reality-bootstrap export-client reality-main
 ```
+<img width="1334" height="1358" alt="{B3A9B5E5-4339-4102-B30F-C71D1E59D1A5}" src="https://github.com/user-attachments/assets/5c91ca45-38dd-4aea-a82e-0963028845b7" />
 
 ## Table of Contents
 
