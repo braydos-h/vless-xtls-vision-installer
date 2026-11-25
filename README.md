@@ -1,6 +1,29 @@
+<<<<<<< HEAD
 # VLESS + REALITY + XTLS Vision Installer
 
 **One command. No domain. No certificate.** Designed for restrictive networks, Fortinet firewalls, ISP filtering and country-level censorship.
+=======
+##  VLESS + REALITY + XTLS Vision Installer. (One Command. No Domain. No Certificate.)
+### 🌍 Designed for Restrictive Networks, ISP Filtering & Country-Level Censorship.
+
+### 🛡️ DPI Resistance • Anti-MITM Protection • TLS Camouflage • Active Probing Resistance • Censorship Circumvention
+
+
+##  Quick Install (takes under a minute!) 
+
+```bash
+git clone https://github.com/braydos-h/vless-xtls-vision-installer.git
+cd vless-xtls-vision-installer
+sudo bash xray_reality_bootstrap.sh
+```
+
+
+##  Demo
+
+**VLESS + REALITY + XTLS Vision Full Setup in 78 Seconds Youtube!**
+
+[![Watch the Demo](https://img.youtube.com/vi/hHB1BeUME8I/maxresdefault.jpg)](https://youtu.be/hHB1BeUME8I)
+>>>>>>> origin/main
 
 Advanced DPI resistance · anti-MITM protection · TLS camouflage · active probing resistance
 
