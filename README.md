@@ -1,33 +1,8 @@
-##  VLESS + REALITY + XTLS Vision Installer. (One Command. No Domain. No Certificate.)
-### 🌍 Designed for Restrictive Networks, Fortinet Firewalls, ISP Filtering & Country-Level Censorship.
+# VLESS + REALITY + XTLS Vision Installer
 
-### 🛡️ Advanced DPI Resistance • Anti-MITM Protection • TLS Camouflage • Active Probing Resistance • Censorship Circumvention
+**One command. No domain. No certificate.** Designed for restrictive networks, Fortinet firewalls, ISP filtering and country-level censorship.
 
-
-##  Quick Install (takes under a minute!) 
-
-```bash
-git clone https://github.com/braydos-h/vless-xtls-vision-installer.git
-cd vless-xtls-vision-installer
-sudo bash xray_reality_bootstrap.sh
-```
-
-The guided installer starts with two simple choices: **1) install**, then a
-numbered list of camouflage websites. Press Enter at each prompt to accept the
-recommended defaults (Cloudflare and safe host settings). Prefer one command?
-List the presets and install by number:
-
-```bash
-sudo bash xray_reality_bootstrap.sh presets
-sudo bash xray_reality_bootstrap.sh install --preset 2
-```
-
-##  Demo
-
-**VLESS + REALITY + XTLS Vision Full Setup in 78 Seconds Youtube!**
-
-[![Watch the Demo](https://img.youtube.com/vi/hHB1BeUME8I/maxresdefault.jpg)](https://youtu.be/hHB1BeUME8I)
-
+Advanced DPI resistance · anti-MITM protection · TLS camouflage · active probing resistance
 
 [![License: GPL-3.0-only](https://img.shields.io/badge/License-GPL--3.0--only-blue.svg)](LICENSE)
 ![OS: Debian 12/13, Ubuntu 22.04/24.04/26.04](https://img.shields.io/badge/OS-Debian%2012%2F13%20%7C%20Ubuntu%2022.04%2F24.04%2F26.04-2f6feb)
@@ -35,23 +10,30 @@ sudo bash xray_reality_bootstrap.sh install --preset 2
 ![Xray-core](https://img.shields.io/badge/Xray-core%20installer%20%26%20manager-0b7285)
 [![GitHub last commit](https://img.shields.io/github/last-commit/braydos-h/vless-xtls-vision-installer)](https://github.com/braydos-h/vless-xtls-vision-installer/commits/main)
 
-A security-focused, recoverable installer and lifecycle manager for a single Xray deployment using VLESS + REALITY + `xtls-rprx-vision`. It emphasizes safe activation, controlled host impact, and operational maintainability: strict profile validation, immutable deployment generations, atomic rollouts, rollback/recovery workflows, and explicit (not silent) hardening operations.
+A security-focused, recoverable installer and lifecycle manager for a single Xray deployment using VLESS + REALITY + `xtls-rprx-vision`. It emphasizes safe activation, controlled host impact and operational maintainability: strict profile validation, immutable deployment generations, atomic rollouts, rollback/recovery workflows and explicit (not silent) hardening operations.
 
-This project is designed to be practical for both first-time setup and long-term administration. It does **not** claim guaranteed censorship bypass, anonymity, universal DPI resistance, or universal client compatibility.
+The project is practical for both first-time setup and long-term administration. It does **not** claim guaranteed censorship bypass, anonymity, universal DPI resistance or universal client compatibility.
 
-Running without arguments opens a welcome screen with the repository name,
-installer version and author, followed by a numbered menu. Choose install,
-preflight, status, diagnostics, show a client link, clients, backups, update,
-help or exit. Press Enter to select the displayed default. Installation asks you
-to pick a camouflage website from a numbered list (Cloudflare, Apple, Microsoft,
-Mozilla, GitHub, Amazon, Google, Samsung or a custom target), then shows the
-current settings: keep them with Enter, choose **Change settings**, or cancel.
-Customization includes numbered firewall, update and yes/no choices, followed by
-a settings review. Use `-` to clear an optional alternate port or client-facing
-server address. Ctrl+C cancels. Existing profiles and saved settings supply the
-defaults on subsequent installs. When installation finishes, it prints the first
-client's VLESS link for copying into your client app, along with the next useful
-commands. Display it again with `show-client NAME`.
+## Quick start
+
+```bash
+git clone https://github.com/braydos-h/vless-xtls-vision-installer.git
+cd vless-xtls-vision-installer
+sudo bash xray_reality_bootstrap.sh
+```
+
+Running without arguments opens a welcome screen with the repository name, installer version and author, followed by a numbered menu: install, preflight, status, diagnostics, show a client link, clients, backups, update, help or exit. Press <kbd>Enter</kbd> to select the displayed default.
+
+Installation asks you to pick a camouflage website from a numbered list (Cloudflare, Apple, Microsoft, Mozilla, GitHub, Amazon, Google, Samsung or a custom target), then shows the current settings: keep them with <kbd>Enter</kbd>, choose **Change settings**, or cancel. Customization includes numbered firewall, update and yes/no choices, followed by a settings review. Use `-` to clear an optional alternate port or client-facing server address. <kbd>Ctrl</kbd>+<kbd>C</kbd> cancels.
+
+Existing profiles and saved settings supply the defaults on subsequent installs. When installation finishes, it prints the first client's VLESS link for copying into your client app, along with the next useful commands. Display it again with `show-client NAME`.
+
+Prefer one command? List the presets and install by number:
+
+```bash
+sudo bash xray_reality_bootstrap.sh presets
+sudo bash xray_reality_bootstrap.sh install --preset 2
+```
 
 You can also run commands directly, including `preflight` and `install`:
 
@@ -61,7 +43,7 @@ sudo bash xray_reality_bootstrap.sh install
 ```
 
 > [!IMPORTANT]
-> New-install support targets are Debian 12/13 and Ubuntu 22.04/24.04/26.04 (apt + systemd PID 1; amd64/arm64/armv7). See [Supported operating systems](#supported-operating-systems) and [Installation walkthrough](#installation-walkthrough).
+> New-install support targets are Debian 12/13 and Ubuntu 22.04/24.04/26.04 (apt + systemd PID 1; `amd64`/`arm64`/`armv7`). See [Supported operating systems](#supported-operating-systems) and [Installation walkthrough](#installation-walkthrough).
 
 After installation, the helper is available at `/usr/local/sbin/xray-reality-bootstrap`:
 
@@ -70,12 +52,22 @@ sudo /usr/local/sbin/xray-reality-bootstrap diagnose
 sudo /usr/local/sbin/xray-reality-bootstrap list-clients
 sudo /usr/local/sbin/xray-reality-bootstrap export-client reality-main
 ```
-<img width="1334" height="1358" alt="{B3A9B5E5-4339-4102-B30F-C71D1E59D1A5}" src="https://github.com/user-attachments/assets/5c91ca45-38dd-4aea-a82e-0963028845b7" />
 
-## Table of Contents
+## Demo
 
-- [⚡ Quick Install](#-quick-install)
-- [Why Choose This Installer?](#why-choose-this-installer)
+**VLESS + REALITY + XTLS Vision full setup in 78 seconds — on YouTube.**
+
+[![Watch the demo](https://img.youtube.com/vi/hHB1BeUME8I/maxresdefault.jpg)](https://youtu.be/hHB1BeUME8I)
+
+### Installer overview
+
+![Installer menu and diagnostics output](https://github.com/user-attachments/assets/5c91ca45-38dd-4aea-a82e-0963028845b7)
+
+## Table of contents
+
+- [Quick start](#quick-start)
+- [Demo](#demo)
+- [Why choose this installer?](#why-choose-this-installer)
 - [Features and capabilities](#features-and-capabilities)
 - [Supported operating systems](#supported-operating-systems)
 - [How REALITY + XTLS Vision works](#how-reality--xtls-vision-works)
@@ -85,18 +77,18 @@ sudo /usr/local/sbin/xray-reality-bootstrap export-client reality-main
 - [Security architecture](#security-architecture)
 - [Firewall and SSH hardening](#firewall-and-ssh-hardening)
 - [Updating Xray](#updating-xray)
-- [Backups, rollback, and recovery](#backups-rollback-and-recovery)
+- [Backups, rollback and recovery](#backups-rollback-and-recovery)
 - [Diagnostics and troubleshooting](#diagnostics-and-troubleshooting)
 - [FAQ](#faq)
 - [Technical documentation](#technical-documentation)
 - [License and acknowledgements](#license-and-acknowledgements)
 
-## Why Choose This Installer?
+## Why choose this installer?
 
-- **Safer operations by design:** strict JSON/profile validation before activation, operation locking, automatic backups, durable journals, and rollback/recovery workflows.
-- **Low host blast radius:** Xray runs as a dedicated restricted account, with least-privilege capability and systemd hardening.
-- **Explicit host-impact controls:** firewall, SSH hardening, fail2ban, unattended upgrades, and optional loopback Nginx diagnostics are opt-in.
-- **Operational lifecycle included:** install, update, client rotation/export, diagnostics, repair, backup, restore, and controlled uninstall.
+- **Safer operations by design:** strict JSON/profile validation before activation, operation locking, automatic backups, durable journals and rollback/recovery workflows.
+- **Low host blast radius:** Xray runs as a dedicated restricted account with least-privilege capability and systemd hardening.
+- **Explicit host-impact controls:** firewall, SSH hardening, fail2ban, unattended upgrades and optional loopback Nginx diagnostics are opt-in.
+- **Operational lifecycle included:** install, update, client rotation/export, diagnostics, repair, backup, restore and controlled uninstall.
 - **Automation ready:** profile-driven non-interactive install with schema checks and dry-run planning.
 
 ## Features and capabilities
@@ -124,24 +116,18 @@ Supported new-install targets:
 - apt-based hosts with systemd as PID 1
 - Architectures: `amd64`, `arm64`, `armv7`
 
-These are support targets, **not** a claim that every target was fully runtime-tested in the same workspace. See [docs/TESTING.md](docs/TESTING.md) for precise validation scope.
+These are support targets, **not** a claim that every target was fully runtime-tested in the same workspace. See [docs/TESTING.md](docs/TESTING.md) for the precise validation scope.
 
-Required tools used by the installer include Bash, Python 3, jq, OpenSSL, curl, util-linux, and iproute2. Git is required for checkout. Real install can bootstrap missing Python/jq and installs only missing selected dependencies; read-only commands do not install packages.
+Required tools used by the installer include Bash, Python 3, `jq`, OpenSSL, `curl`, util-linux and iproute2. Git is required for checkout. A real install can bootstrap missing Python/`jq` and installs only missing selected dependencies; read-only commands do not install packages.
 
-Preflight reports `[PASS]`/`[FAIL]` for platform, root, dependencies, storage,
-address family, profile, and listener ownership. Unsupported releases are rejected
-with the supported versions listed. Use `--network-check` to additionally test
-DNS and verified TLS 1.3/X25519/h2 for the selected REALITY endpoint and SNI.
-Validation failures leave deployment and host policy unchanged and do not start
-rollback. Read-only preflight requires dependencies to be installed already:
+Preflight reports `[PASS]`/`[FAIL]` for platform, root, dependencies, storage, address family, profile and listener ownership. Unsupported releases are rejected with the supported versions listed. Use `--network-check` to additionally test DNS and verified TLS 1.3/X25519/h2 for the selected REALITY endpoint and SNI. Validation failures leave deployment and host policy unchanged and do not start rollback. Read-only preflight requires dependencies to be installed already:
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y ca-certificates curl openssl jq python3 iproute2 util-linux
 ```
 
-For the Ubuntu 26.04 / Apple target profile (equal SNI and destination host are
-valid), use the same profile for both checks and installation:
+For the Ubuntu 26.04 / Apple target profile (equal SNI and destination host are valid), use the same profile for both checks and installation:
 
 ```bash
 sudo bash xray_reality_bootstrap.sh preflight --profile-json examples/ubuntu2604.json --network-check
@@ -152,9 +138,7 @@ sudo ss -H -lntp 'sport = :443'
 sudo bash xray_reality_bootstrap.sh diagnose
 ```
 
-The target's DNS, certificate, TLS and ALPN capabilities must pass from your VPS.
-Failures name the endpoint, operation and underlying error; selecting a supported
-OS does not bypass network or runtime checks.
+The target's DNS, certificate, TLS and ALPN capabilities must pass from your VPS. Failures name the endpoint, operation and underlying error; selecting a supported OS does not bypass network or runtime checks.
 
 ## How REALITY + XTLS Vision works
 
@@ -162,29 +146,28 @@ This installer configures VLESS over REALITY with:
 
 - Flow: `xtls-rprx-vision`
 - Transport: RAW/TCP
-- Target/SNI probing that requires TLS 1.3, X25519, trusted certificate hostname match, and `h2`
+- Target/SNI probing that requires TLS 1.3, X25519, a trusted certificate hostname match and `h2`
 
 Unauthenticated REALITY handshakes forward to the configured TLS target endpoint. `FALLBACK_PORT` is an alternate REALITY listener, not a separate bypass mode.
 
 > [!CAUTION]
-> Do not treat this as a guarantee of anonymity, censorship bypass, or universal DPI resistance.
+> Do not treat this as a guarantee of anonymity, censorship bypass or universal DPI resistance.
 
 ## Installation walkthrough
 
-### 1) Preflight and install
+### 1. Preflight and install
 
 ```bash
 sudo bash xray_reality_bootstrap.sh preflight
 sudo bash xray_reality_bootstrap.sh install
 ```
 
-### 2) Choose a camouflage website (REALITY presets)
+### 2. Choose a camouflage website (REALITY presets)
 
-The interactive wizard and the `--preset` option share one built-in list. Each
-preset sets both `SERVER_NAME` and `DEST_ENDPOINT` (`host:443`):
+The interactive wizard and the `--preset` option share one built-in list. Each preset sets both `SERVER_NAME` and `DEST_ENDPOINT` (`host:443`):
 
 | Number | Preset | REALITY target |
-|---|---|---|
+|---:|---|---|
 | 1 | Cloudflare | `www.cloudflare.com` |
 | 2 | Apple | `www.apple.com` |
 | 3 | Microsoft | `www.microsoft.com` |
@@ -204,25 +187,24 @@ sudo bash xray_reality_bootstrap.sh install --preset 2
 sudo bash xray_reality_bootstrap.sh install --preset apple
 ```
 
-Presets are convenience defaults, not a guarantee. Every target still has to
-pass the REALITY probe (TLS 1.3, X25519, HTTP/2 and a matching certificate) from
-your VPS. Run `preflight --network-check` to test reachability before installing;
-if a target is blocked on your network, pick another preset or a custom target.
+Presets are convenience defaults, not a guarantee. Every target still has to pass the REALITY probe (TLS 1.3, X25519, HTTP/2 and a matching certificate) from your VPS. Run `preflight --network-check` to test reachability before installing; if a target is blocked on your network, pick another preset or a custom target.
 
-### 3) Understand defaults
+### 3. Understand defaults
 
 Default behavior changes Xray only. By default:
 
-- Camouflage target: preset 1, Cloudflare (`www.cloudflare.com`)
-- `FIREWALL_STYLE=none`
-- `XRAY_UPDATE_POLICY=manual`
-- `BLOCK_PRIVATE_OUTBOUND=yes` (application-level routing rules)
-- `OS_PRIVATE_OUTBOUND=no` (no OS-level UID egress filter)
-- `LISTEN_ADDRESS=::` (Linux usually accepts IPv4 too)
+| Setting | Default |
+|---|---|
+| Camouflage target | Preset 1, Cloudflare (`www.cloudflare.com`) |
+| `FIREWALL_STYLE` | `none` |
+| `XRAY_UPDATE_POLICY` | `manual` |
+| `BLOCK_PRIVATE_OUTBOUND` | `yes` (application-level routing rules) |
+| `OS_PRIVATE_OUTBOUND` | `no` (no OS-level UID egress filter) |
+| `LISTEN_ADDRESS` | `::` (Linux usually accepts IPv4 too) |
 
 If IPv6 is unavailable, use `LISTEN_ADDRESS=0.0.0.0` in your profile.
 
-### 4) Initial validation and export
+### 4. Initial validation and export
 
 ```bash
 sudo /usr/local/sbin/xray-reality-bootstrap diagnose
@@ -233,7 +215,15 @@ sudo /usr/local/sbin/xray-reality-bootstrap show-client reality-main
 sudo /usr/local/sbin/xray-reality-bootstrap export-client reality-main --public-ip proxy.example.com
 ```
 
-Exports are generated under `/root/xray-client-configs` (directory mode `700`, file mode `600`). If `PUBLIC_IP` is blank, install detects and saves the server address before deployment. Export also detects an address for older installations with an empty saved value. Discovery prefers a public bound/SSH ingress address, then tries bounded HTTPS IPv4/IPv6 checks. For custom NAT, port forwarding, or a DNS name, configure `PUBLIC_IP` or pass `--public-ip YOUR_SERVER_IP_OR_HOSTNAME`. Explicit saved addresses are retained. If the installed helper predates `--public-ip`, run `sudo bash ./xray_reality_bootstrap.sh export-client reality-main --public-ip YOUR_SERVER_IP_OR_HOSTNAME` from the updated checkout; exporting does not require reinstalling Xray. `qrencode` is optional and must be installed separately to generate QR files.
+Exports are generated under `/root/xray-client-configs` (directory mode `700`, file mode `600`). If `PUBLIC_IP` is blank, install detects and saves the server address before deployment. Export also detects an address for older installations with an empty saved value. Discovery prefers a public bound/SSH ingress address, then tries bounded HTTPS IPv4/IPv6 checks. For custom NAT, port forwarding or a DNS name, configure `PUBLIC_IP` or pass `--public-ip YOUR_SERVER_IP_OR_HOSTNAME`. Explicit saved addresses are retained.
+
+If the installed helper predates `--public-ip`, run the following from the updated checkout; exporting does not require reinstalling Xray:
+
+```bash
+sudo bash ./xray_reality_bootstrap.sh export-client reality-main --public-ip YOUR_SERVER_IP_OR_HOSTNAME
+```
+
+`qrencode` is optional and must be installed separately to generate QR files.
 
 ## Client management
 
@@ -254,8 +244,7 @@ sudo /usr/local/sbin/xray-reality-bootstrap rotate-shortid --migration-window 60
 sudo /usr/local/sbin/xray-reality-bootstrap finalize-shortid
 ```
 
-`install` prints the first client's VLESS link when deployment finishes, and
-`show-client` prints the requested client's link. Other operations redact credentials.
+`install` prints the first client's VLESS link when deployment finishes, and `show-client` prints the requested client's link. Other operations redact credentials.
 
 ## Automated and advanced configuration
 
@@ -269,20 +258,19 @@ sudo bash xray_reality_bootstrap.sh install --auto --non-interactive \
   --profile-json examples/profile.json --preset apple --xray-version v26.3.27
 ```
 
-`--preset` accepts a number from `presets` or a short id. It overrides
-`SERVER_NAME` and `DEST_ENDPOINT` from a profile, so the two stay consistent.
+`--preset` accepts a number from `presets` or a short id. It overrides `SERVER_NAME` and `DEST_ENDPOINT` from a profile, so the two stay consistent.
 
 Profile handling:
 
 - Profile fields are strings.
-- Unknown fields, duplicate keys, wrong types, and invalid values are rejected.
-- Input must be UTF-8 JSON, regular file, max 2 MiB.
+- Unknown fields, duplicate keys, wrong types and invalid values are rejected.
+- Input must be UTF-8 JSON in a regular file, max 2 MiB.
 - Format `2` is current; valid legacy format `1` is normalized.
 
 <details>
 <summary><strong>Migration / legacy note (version 1)</strong></summary>
 
-For version 1 deployments, run `repair` with the new standalone script before normal lifecycle operations. Migration preserves valid identities/clients where state and config agree, rejects unsafe inconsistencies, and keeps legacy files for review rather than treating them as authoritative.
+For version 1 deployments, run `repair` with the new standalone script before normal lifecycle operations. Migration preserves valid identities/clients where state and config agree, rejects unsafe inconsistencies and keeps legacy files for review rather than treating them as authoritative.
 
 ```bash
 sudo bash xray_reality_bootstrap.sh repair
@@ -292,18 +280,18 @@ sudo bash xray_reality_bootstrap.sh repair
 
 ## Security architecture
 
-Xray runs as dedicated `xray-bootstrap` with no login shell/home, with only `CAP_NET_BIND_SERVICE`. The service unit applies restrictions including read-only system filesystem, private temp, protected home/control groups/kernel settings, restricted namespaces/devices/SUID/realtime, memory W^X protection, limited address families, and writable logs only.
+Xray runs as the dedicated `xray-bootstrap` account with no login shell or home directory, holding only `CAP_NET_BIND_SERVICE`. The service unit applies restrictions including a read-only system filesystem, private temp, protected home/control groups/kernel settings, restricted namespaces/devices/SUID/realtime, memory W^X protection, limited address families and writable logs only.
 
-Deployment/state model includes strict versioned JSON, pre-activation validation, immutable generations, atomic pointer switch, operation locking, automatic backups, durable journals, rollback/recovery, and root-only secrets/state/backups/exports/logs.
+The deployment/state model includes strict versioned JSON, pre-activation validation, immutable generations, an atomic pointer switch, operation locking, automatic backups, durable journals, rollback/recovery, and root-only secrets/state/backups/exports/logs.
 
 > [!NOTE]
-> These controls reduce blast radius. They are not a security guarantee and do not replace host hardening, patching, or access control.
+> These controls reduce blast radius. They are not a security guarantee and do not replace host hardening, patching or access control.
 
 ## Firewall and SSH hardening
 
 ### Firewall behavior
 
-- Never flushes rules, resets UFW, changes default policy, disables a firewall manager, or edits `/etc/nftables.conf`.
+- Never flushes rules, resets UFW, changes default policy, disables a firewall manager or edits `/etc/nftables.conf`.
 - Keeps Docker/VPN/fail2ban tables untouched.
 - nftables ownership is limited to `table inet xray_bootstrap`.
 - UFW rules are added only when UFW is already active, and only with installer tags.
@@ -328,7 +316,7 @@ sudo /usr/local/sbin/xray-reality-bootstrap harden-ssh \
 sudo /usr/local/sbin/xray-reality-bootstrap restore-ssh
 ```
 
-It retains original ports, validates with `sshd -t` and effective `sshd -T`, and requires fresh key-login confirmation before password auth is disabled.
+It retains original ports, validates with `sshd -t` and effective `sshd -T`, and requires fresh key-login confirmation before password authentication is disabled.
 
 > [!WARNING]
 > Keep provider console access and your current working session while performing firewall/SSH transitions.
@@ -343,12 +331,12 @@ sudo /usr/local/sbin/xray-reality-bootstrap update
 sudo /usr/local/sbin/xray-reality-bootstrap update --xray-version v26.3.27
 ```
 
-Supports manual policy plus optional daily/weekly timer, version pinning, and prerelease opt-in. Update verification includes official GitHub release metadata, exact expected asset URL, advertised size, SHA-256 digest/checksum, archive safety checks, executable version check, and config-compatibility validation. Unpinned downgrade to older stable is skipped.
+Supports manual policy plus an optional daily/weekly timer, version pinning and prerelease opt-in. Update verification includes official GitHub release metadata, the exact expected asset URL, advertised size, SHA-256 digest/checksum, archive safety checks, an executable version check and config-compatibility validation. An unpinned downgrade to an older stable release is skipped.
 
 > [!NOTE]
 > SHA-256 verification here provides integrity checking, not an independent publisher signature trust model.
 
-## Backups, rollback, and recovery
+## Backups, rollback and recovery
 
 ```bash
 sudo /usr/local/sbin/xray-reality-bootstrap backup
@@ -359,13 +347,13 @@ sudo /usr/local/sbin/xray-reality-bootstrap repair
 sudo /usr/local/sbin/xray-reality-bootstrap uninstall --yes
 ```
 
-Backups contain live secrets and are not encrypted. Keep encrypted trusted off-server copies and never post backups, exports, or raw logs publicly.
+Backups contain live secrets and are not encrypted. Keep encrypted trusted off-server copies and never post backups, exports or raw logs publicly.
 
-Uninstall intentionally retains backups, credentials, exports, helper, and the service account for recovery. If managed SSH exists, restore it first and confirm the transition.
+Uninstall intentionally retains backups, credentials, exports, the helper and the service account for recovery. If managed SSH exists, restore it first and confirm the transition.
 
 ## Diagnostics and troubleshooting
 
-`status` and `diagnose` emit structured redacted JSON for service/config/listeners/runtime identity/optional local site/firewall/timer/pending transition checks. They do **not** prove external connectivity.
+`status` and `diagnose` emit structured redacted JSON covering service/config/listeners/runtime identity, plus optional local site/firewall/timer/pending-transition checks. They do **not** prove external connectivity.
 
 Optional end-to-end test:
 
@@ -376,33 +364,33 @@ sudo /usr/local/sbin/xray-reality-bootstrap test-client reality-main \
 
 | Symptom | Check |
 |---|---|
-| Client timeout | Verify host + cloud firewall, public endpoint, server clock, and REALITY target/SNI settings |
-| Probe/handshake failure | Confirm target supports TLS 1.3 + X25519 + h2 and certificate hostname match |
+| Client timeout | Verify host + cloud firewall, public endpoint, server clock and REALITY target/SNI settings |
+| Probe/handshake failure | Confirm the target supports TLS 1.3 + X25519 + h2 and a matching certificate hostname |
 | Exports unusable | Run `export-client NAME --public-ip YOUR_SERVER_IP_OR_HOSTNAME`; no restart or credential change is needed |
-| Firewall transition stuck | Use fresh-session `confirm-host` or run `recover` after interrupted transition |
+| Firewall transition stuck | Use fresh-session `confirm-host` or run `recover` after the interrupted transition |
 | Private egress breaks name resolution | Re-check DNS resolver reachability and whether OS-level egress mode is required |
 
 ## FAQ
 
-**Do I need to buy a domain/certificate for the proxy server?**  
-No. REALITY SNI points to the TLS target used for camouflage probing. Clients can use your server public IP using the saved/detected server address or an explicit `--public-ip` override.
+**Do I need to buy a domain/certificate for the proxy server?**
+No. REALITY SNI points to the TLS target used for camouflage probing. Clients can use your server's public IP via the saved/detected server address or an explicit `--public-ip` override.
 
-**Does this provide guaranteed censorship bypass or anonymity?**  
+**Does this provide guaranteed censorship bypass or anonymity?**
 No. Deployment quality improves safety and recoverability, but there is no universal bypass/anonymity guarantee.
 
-**Does private-route blocking isolate the whole host?**  
+**Does private-route blocking isolate the whole host?**
 No. Application-level routing applies to proxy traffic. Host-level isolation requires separate controls (for example, optional UID-scoped nftables egress) and still has limitations.
 
-**Can I rely on testing claims as production guarantees?**  
+**Can I rely on testing claims as production guarantees?**
 No. Current checks pass 22 Python tests + 93 Bats tests, covering interactive CLI navigation, numbered camouflage presets, defaults, customization, cancellation, invalid-setting correction and the blank-address wizard-to-export regression. All CI checks are local static and mocked tests; they do not install Xray or prove kernel/systemd/SSH integration or real client connectivity. The earlier Ubuntu 26.04 repair verified actual installation, repeat-install identity preservation, systemd/port 443 health and failed-activation rollback in a disposable WSL2 guest; prior Debian 12/Ubuntu 24.04 guest results are recorded separately. No production VPS was modified. See [validation scope](docs/TESTING.md).
 
 ## Technical documentation
 
-- [docs/TESTING.md](docs/TESTING.md)
-- [docs/AUDIT.md](docs/AUDIT.md)
-- [examples/profile.json](examples/profile.json)
-- [scripts/build.sh](scripts/build.sh) — rebuild standalone artifact from `lib/`
-- [scripts/check.sh](scripts/check.sh) — syntax + ShellCheck + shfmt + Python tests + Bats + JSON/profile validation + py_compile + reproducibility + docs/link/command checks
+- [docs/TESTING.md](docs/TESTING.md) — validation scope
+- [docs/AUDIT.md](docs/AUDIT.md) — security audit notes
+- [examples/profile.json](examples/profile.json) — non-interactive install profile
+- [scripts/build.sh](scripts/build.sh) — rebuild the standalone artifact from `lib/`
+- [scripts/check.sh](scripts/check.sh) — syntax + ShellCheck + shfmt + Python tests + Bats + JSON/profile validation + `py_compile` + reproducibility + docs/link/command checks
 
 Upstream references:
 
@@ -414,4 +402,4 @@ Upstream references:
 
 Licensed under [GPL-3.0-only](LICENSE).
 
-This project is a security/operations overhaul of the original installer by `braydos-h`, with updated deployment safety, host coexistence, lifecycle tooling, and validation coverage.
+This project is a security/operations overhaul of the original installer by `braydos-h`, with updated deployment safety, host coexistence, lifecycle tooling and validation coverage.
