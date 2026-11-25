@@ -1,7 +1,7 @@
 ##  VLESS + REALITY + XTLS Vision Installer. (One Command. No Domain. No Certificate.)
-### 🌍 Designed for Restrictive Networks, Fortinet Firewalls, ISP Filtering & Country-Level Censorship.
+### 🌍 Designed for Restrictive Networks, ISP Filtering & Country-Level Censorship.
 
-### 🛡️ Advanced DPI Resistance • Anti-MITM Protection • TLS Camouflage • Active Probing Resistance • Censorship Circumvention
+### 🛡️ DPI Resistance • Anti-MITM Protection • TLS Camouflage • Active Probing Resistance • Censorship Circumvention
 
 
 ##  Quick Install (takes under a minute!) 
